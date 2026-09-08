@@ -1,164 +1,25 @@
-export interface Env {
-  DB: D1Database;
-  ASSETS: Fetcher;
-}
-
-const json = (data: unknown, init: ResponseInit = {}) => new Response(JSON.stringify(data), {
-  ...init,
-  headers: { 'content-type': 'application/json; charset=utf-8', ...(init.headers || {}) },
-});
-const now = () => new Date().toISOString();
-const id = () => crypto.randomUUID();
-async function audit(env: Env, entityType: string, entityId: string, action: string, before: unknown, after: unknown) {
-  await env.DB.prepare(`INSERT INTO audit_log (id, occurred_at, entity_type, entity_id, action, before_json, after_json) VALUES (?, ?, ?, ?, ?, ?, ?)`).bind(id(), now(), entityType, entityId, action, before == null ? null : JSON.stringify(before), after == null ? null : JSON.stringify(after)).run();
-}
-async function body(request: Request) { return await request.json<Record<string, unknown>>(); }
-async function existing(env: Env, table: string, entityId: string) {
-  const allowed = new Set(['accounts','categories','payment_methods']);
-  if (!allowed.has(table)) throw new Error('Invalid entity');
-  return env.DB.prepare(`SELECT * FROM ${table} WHERE id = ? AND deleted_at IS NULL`).bind(entityId).first<any>();
-}
-
-export default {
-  async fetch(request: Request, env: Env): Promise<Response> {
-    try {
-      const url = new URL(request.url);
-      if (!url.pathname.startsWith('/api/')) return env.ASSETS.fetch(request);
-      if (request.method === 'GET' && url.pathname === '/api/health') {
-        const result = await env.DB.prepare('SELECT 1 AS ok').first<{ ok: number }>();
-        return json({ ok: result?.ok === 1 });
-      }
-      if (request.method === 'GET' && url.pathname === '/api/bootstrap') {
-        const [accounts, categories, methods, suggestions, payees] = await Promise.all([
-          env.DB.prepare(`SELECT * FROM accounts WHERE deleted_at IS NULL AND is_active=1 ORDER BY name`).all(),
-          env.DB.prepare(`SELECT * FROM categories WHERE deleted_at IS NULL AND is_active=1 ORDER BY parent_id IS NOT NULL, sort_order, name`).all(),
-          env.DB.prepare(`SELECT * FROM payment_methods WHERE deleted_at IS NULL AND is_active=1 ORDER BY account_id, name`).all(),
-          env.DB.prepare(`SELECT description FROM description_suggestions ORDER BY usage_count DESC, last_used_at DESC LIMIT 100`).all(),
-          env.DB.prepare(`SELECT * FROM payees WHERE deleted_at IS NULL AND is_active=1 ORDER BY name`).all(),
-        ]);
-        return json({ accounts: accounts.results, categories: categories.results, paymentMethods: methods.results, suggestions: suggestions.results.map((x: any) => x.description), payees: payees.results });
-      }
-      if (request.method === 'GET' && url.pathname === '/api/search-options') {
-        const q=(url.searchParams.get('q')||'').trim(); if(!q) return json({descriptions:[],categories:[],methods:[],accounts:[],payees:[]});
-        const s=`%${q}%`;
-        const [descriptions,categories,methods,accounts,payees]=await Promise.all([
-          env.DB.prepare(`SELECT description AS value, usage_count AS count FROM description_suggestions WHERE description LIKE ? ORDER BY usage_count DESC, last_used_at DESC LIMIT 8`).bind(s).all(),
-          env.DB.prepare(`SELECT id,name,kind,parent_id FROM categories WHERE deleted_at IS NULL AND is_active=1 AND name LIKE ? ORDER BY name LIMIT 8`).bind(s).all(),
-          env.DB.prepare(`SELECT id,name,account_id FROM payment_methods WHERE deleted_at IS NULL AND is_active=1 AND name LIKE ? ORDER BY name LIMIT 8`).bind(s).all(),
-          env.DB.prepare(`SELECT id,name FROM accounts WHERE deleted_at IS NULL AND is_active=1 AND name LIKE ? ORDER BY name LIMIT 8`).bind(s).all(),
-          env.DB.prepare(`SELECT id,name FROM payees WHERE deleted_at IS NULL AND is_active=1 AND name LIKE ? ORDER BY name LIMIT 8`).bind(s).all(),
-        ]);
-        return json({descriptions:descriptions.results,categories:categories.results,methods:methods.results,accounts:accounts.results,payees:payees.results});
-      }
-      if (request.method === 'GET' && url.pathname === '/api/transactions') {
-        const limit = Math.min(Math.max(Number(url.searchParams.get('limit') || 100), 1), 500), offset = Math.max(Number(url.searchParams.get('offset') || 0), 0);
-        const q = (url.searchParams.get('q') || '').trim(), type = url.searchParams.get('type'), account = url.searchParams.get('account'), category = url.searchParams.get('category'), method = url.searchParams.get('method');
-        const clauses = ['t.deleted_at IS NULL']; const params: unknown[] = [];
-        if (q) { clauses.push(`(LOWER(t.description) LIKE LOWER(?) OR LOWER(t.note) LIKE LOWER(?) OR LOWER(COALESCE(c.name,'')) LIKE LOWER(?) OR LOWER(COALESCE(p.name,'')) LIKE LOWER(?) OR LOWER(a.name) LIKE LOWER(?) OR LOWER(COALESCE(pm.name,'')) LIKE LOWER(?))`); const s=`%${q}%`; params.push(s,s,s,s,s,s); }
-        if (type === 'income' || type === 'expense') { clauses.push('t.transaction_type = ?'); params.push(type); }
-        if (account) { clauses.push('t.account_id = ?'); params.push(account); }
-        if (category) { clauses.push('t.category_id = ?'); params.push(category); }
-        if (method) { clauses.push('t.payment_method_id = ?'); params.push(method); }
-        const result = await env.DB.prepare(`SELECT t.*, a.name AS account_name, c.name AS category_name, p.name AS payee_name, pm.name AS payment_method_name FROM transactions t JOIN accounts a ON a.id=t.account_id LEFT JOIN categories c ON c.id=t.category_id LEFT JOIN payees p ON p.id=t.payee_id LEFT JOIN payment_methods pm ON pm.id=t.payment_method_id WHERE ${clauses.join(' AND ')} ORDER BY t.occurred_at DESC LIMIT ? OFFSET ?`).bind(...params,limit,offset).all();
-        return json(result.results);
-      }
-      if (request.method === 'GET' && url.pathname.startsWith('/api/transactions/') && url.pathname.endsWith('/audit')) {
-        const entityId=url.pathname.split('/')[3];
-        const result=await env.DB.prepare(`SELECT * FROM audit_log WHERE entity_type='transaction' AND entity_id=? ORDER BY occurred_at DESC`).bind(entityId).all();
-        return json(result.results);
-      }
-      if (request.method === 'GET' && url.pathname.startsWith('/api/transactions/')) {
-        const entityId=url.pathname.split('/')[3];
-        const result=await env.DB.prepare(`SELECT t.*, a.name AS account_name, c.name AS category_name, p.name AS payee_name, pm.name AS payment_method_name FROM transactions t JOIN accounts a ON a.id=t.account_id LEFT JOIN categories c ON c.id=t.category_id LEFT JOIN payees p ON p.id=t.payee_id LEFT JOIN payment_methods pm ON pm.id=t.payment_method_id WHERE t.id=? AND t.deleted_at IS NULL`).bind(entityId).first<any>();
-        if(!result)return json({error:'Transaction not found'},{status:404});
-        const splits=await env.DB.prepare(`SELECT s.*, c.name AS category_name FROM transaction_splits s LEFT JOIN categories c ON c.id=s.category_id WHERE s.transaction_id=? AND s.deleted_at IS NULL ORDER BY s.created_at`).bind(entityId).all();
-        return json({...result,splits:splits.results});
-      }
-      if (request.method === 'GET' && url.pathname === '/api/audit') {
-        const result=await env.DB.prepare(`SELECT * FROM audit_log ORDER BY occurred_at DESC LIMIT 300`).all();
-        return json(result.results);
-      }
-      if (request.method === 'GET' && url.pathname === '/api/dashboard') {
-        const rows = await env.DB.prepare(`SELECT t.*, c.name AS category_name FROM transactions t LEFT JOIN categories c ON c.id=t.category_id WHERE t.deleted_at IS NULL`).all<any>();
-        const accounts = await env.DB.prepare(`SELECT * FROM accounts WHERE deleted_at IS NULL AND is_active=1 ORDER BY name`).all<any>();
-        const transactions = rows.results, today=new Date(), startOfWeek=new Date(today), startOfMonth=new Date(today.getFullYear(),today.getMonth(),1);
-        startOfWeek.setHours(0,0,0,0); startOfWeek.setDate(today.getDate()-((today.getDay()+6)%7));
-        const sums=(start:Date)=>transactions.reduce((r:any,t:any)=>{if(new Date(t.occurred_at)>=start)r[t.transaction_type]+=t.amount_minor;return r;},{income:0,expense:0});
-        const month=sums(startOfMonth),week=sums(startOfWeek),categories:Record<string,number>={};
-        transactions.filter((t:any)=>t.transaction_type==='expense'&&new Date(t.occurred_at)>=startOfMonth).forEach((t:any)=>categories[t.category_name||'Uncategorized']=(categories[t.category_name||'Uncategorized']||0)+t.amount_minor);
-        const balances=accounts.results.map((a:any)=>({...a,balance_minor:a.opening_balance_minor+transactions.filter((t:any)=>t.account_id===a.id).reduce((s:number,t:any)=>s+(t.transaction_type==='income'?t.amount_minor:-t.amount_minor),0)}));
-        return json({week,month,categories,balances});
-      }
-
-      if (request.method === 'POST' && url.pathname === '/api/accounts') {
-        const b=await body(request),name=String(b.name||'').trim(); if(!name)return json({error:'Account name is required'},{status:400});
-        const created=now(),account={id:id(),name,opening_balance_minor:Math.round(Number(b.openingBalance||0)*100),opening_balance_at:String(b.openingBalanceAt||created),is_active:1,created_at:created,updated_at:created,deleted_at:null};
-        await env.DB.prepare(`INSERT INTO accounts (id,name,opening_balance_minor,opening_balance_at,is_active,created_at,updated_at) VALUES (?,?,?,?,?,?,?)`).bind(account.id,account.name,account.opening_balance_minor,account.opening_balance_at,1,created,created).run();
-        await audit(env,'account',account.id,'create',null,account); return json(account,{status:201});
-      }
-      if (request.method === 'PUT' && url.pathname.startsWith('/api/accounts/')) {
-        const entityId=url.pathname.split('/').pop()||'', before=await existing(env,'accounts',entityId); if(!before)return json({error:'Account not found'},{status:404});
-        const b=await body(request),name=String(b.name??before.name).trim(),opening=Math.round(Number(b.openingBalance??before.opening_balance_minor/100)*100); if(!name)return json({error:'Account name is required'},{status:400});
-        const updated={...before,name,opening_balance_minor:opening,updated_at:now()};
-        await env.DB.prepare(`UPDATE accounts SET name=?, opening_balance_minor=?, updated_at=? WHERE id=?`).bind(name,opening,updated.updated_at,entityId).run();
-        await audit(env,'account',entityId,'update',before,updated); return json(updated);
-      }
-
-      if (request.method === 'POST' && url.pathname === '/api/categories') {
-        const b=await body(request),name=String(b.name||'').trim(),kind=['expense','income','both'].includes(String(b.kind))?String(b.kind):'expense'; if(!name)return json({error:'Category name is required'},{status:400});
-        const created=now(),category={id:id(),name,parent_id:b.parentId?String(b.parentId):null,kind,sort_order:0,is_active:1,created_at:created,updated_at:created,deleted_at:null};
-        await env.DB.prepare(`INSERT INTO categories (id,name,parent_id,kind,sort_order,is_active,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?)`).bind(category.id,category.name,category.parent_id,kind,0,1,created,created).run();
-        await audit(env,'category',category.id,'create',null,category); return json(category,{status:201});
-      }
-      if (request.method === 'PUT' && url.pathname.startsWith('/api/categories/')) {
-        const entityId=url.pathname.split('/').pop()||'', before=await existing(env,'categories',entityId); if(!before)return json({error:'Category not found'},{status:404});
-        const b=await body(request),name=String(b.name??before.name).trim(),parentId=b.parentId===null||b.parentId===''?null:String(b.parentId??before.parent_id),kind=['expense','income','both'].includes(String(b.kind))?String(b.kind):before.kind;
-        if(!name)return json({error:'Category name is required'},{status:400});
-        if(parentId===entityId)return json({error:'A category cannot be its own parent'},{status:400});
-        const updated={...before,name,parent_id:parentId,kind,updated_at:now()};
-        await env.DB.prepare(`UPDATE categories SET name=?, parent_id=?, kind=?, updated_at=? WHERE id=?`).bind(name,parentId,kind,updated.updated_at,entityId).run();
-        await audit(env,'category',entityId,'update',before,updated); return json(updated);
-      }
-
-      if (request.method === 'POST' && url.pathname === '/api/payment-methods') {
-        const b=await body(request),name=String(b.name||'').trim(),accountId=String(b.accountId||''); if(!name||!accountId)return json({error:'Payment method name and account are required'},{status:400});
-        const created=now(),method={id:id(),account_id:accountId,name,is_active:1,created_at:created,updated_at:created,deleted_at:null};
-        await env.DB.prepare(`INSERT INTO payment_methods (id,account_id,name,is_active,created_at,updated_at) VALUES (?,?,?,?,?,?)`).bind(method.id,method.account_id,method.name,1,created,created).run();
-        await audit(env,'payment_method',method.id,'create',null,method); return json(method,{status:201});
-      }
-      if (request.method === 'PUT' && url.pathname.startsWith('/api/payment-methods/')) {
-        const entityId=url.pathname.split('/').pop()||'', before=await existing(env,'payment_methods',entityId); if(!before)return json({error:'Payment method not found'},{status:404});
-        const b=await body(request),name=String(b.name??before.name).trim(),accountId=String(b.accountId??before.account_id); if(!name||!accountId)return json({error:'Payment method name and account are required'},{status:400});
-        const updated={...before,name,account_id:accountId,updated_at:now()};
-        await env.DB.prepare(`UPDATE payment_methods SET name=?, account_id=?, updated_at=? WHERE id=?`).bind(name,accountId,updated.updated_at,entityId).run();
-        await audit(env,'payment_method',entityId,'update',before,updated); return json(updated);
-      }
-
-      if (request.method === 'POST' && url.pathname === '/api/transactions') {
-        const b=await body(request),accountId=String(b.accountId||''),amount=Math.round(Number(b.amount||0)*100),type=String(b.type||'expense');
-        if(!accountId||amount<=0||!['expense','income'].includes(type))return json({error:'Account, valid amount and type are required'},{status:400});
-        const created=now(),occurredAt=String(b.occurredAt||created),description=String(b.description||'').trim(),note=String(b.note||''),categoryId=b.categoryId?String(b.categoryId):null,paymentMethodId=b.methodId?String(b.methodId):null,status=b.status==='uncleared'?'uncleared':'cleared',payeeName=String(b.payee||'').trim();
-        let payeeId:null|string=null;
-        if(payeeName){const found=await env.DB.prepare(`SELECT id FROM payees WHERE name=? AND deleted_at IS NULL LIMIT 1`).bind(payeeName).first<any>();payeeId=found?.id||id();if(!found)await env.DB.prepare(`INSERT INTO payees (id,name,is_active,created_at,updated_at) VALUES (?,?,?,?,?)`).bind(payeeId,payeeName,1,created,created).run();}
-        const tx={id:id(),account_id:accountId,payment_method_id:paymentMethodId,category_id:categoryId,payee_id:payeeId,transaction_type:type,amount_minor:amount,occurred_at:occurredAt,description,note,status,parent_transaction_id:null,recurring_rule_id:null,transfer_id:null,is_split_parent:0,created_at:created,updated_at:created,deleted_at:null};
-        await env.DB.prepare(`INSERT INTO transactions (id,account_id,payment_method_id,category_id,payee_id,transaction_type,amount_minor,occurred_at,description,note,status,parent_transaction_id,recurring_rule_id,transfer_id,is_split_parent,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`).bind(tx.id,tx.account_id,tx.payment_method_id,tx.category_id,tx.payee_id,tx.transaction_type,tx.amount_minor,tx.occurred_at,tx.description,tx.note,tx.status,null,null,null,0,created,created).run();
-        if(description)await env.DB.prepare(`INSERT INTO description_suggestions (id,description,usage_count,last_used_at,created_at,updated_at) VALUES (?,?,?,?,?,?) ON CONFLICT(description) DO UPDATE SET usage_count=usage_count+1,last_used_at=excluded.last_used_at,updated_at=excluded.updated_at`).bind(id(),description,1,created,created,created).run();
-        await audit(env,'transaction',tx.id,'create',null,tx); return json(tx,{status:201});
-      }
-      if (request.method === 'PUT' && url.pathname.startsWith('/api/transactions/')) {
-        const entityId=url.pathname.split('/').pop()||'';
-        const before=await env.DB.prepare(`SELECT * FROM transactions WHERE id=? AND deleted_at IS NULL`).bind(entityId).first<any>(); if(!before)return json({error:'Transaction not found'},{status:404});
-        const b=await body(request);const amount=Math.round(Number(b.amount??before.amount_minor/100)*100);const type=['expense','income'].includes(String(b.type))?String(b.type):before.transaction_type;
-        if(amount<=0)return json({error:'Amount must be greater than zero'},{status:400});
-        const updated={...before,account_id:String(b.accountId??before.account_id),payment_method_id:b.methodId===null?null:String(b.methodId??before.payment_method_id||''),category_id:b.categoryId===null?null:String(b.categoryId??before.category_id||''),transaction_type:type,amount_minor:amount,occurred_at:String(b.occurredAt??before.occurred_at),description:String(b.description??before.description),note:String(b.note??before.note),status:b.status==='uncleared'?'uncleared':'cleared',updated_at:now()};
-        await env.DB.prepare(`UPDATE transactions SET account_id=?,payment_method_id=?,category_id=?,transaction_type=?,amount_minor=?,occurred_at=?,description=?,note=?,status=?,updated_at=? WHERE id=?`).bind(updated.account_id,updated.payment_method_id||null,updated.category_id||null,updated.transaction_type,updated.amount_minor,updated.occurred_at,updated.description,updated.note,updated.status,updated.updated_at,entityId).run();
-        await audit(env,'transaction',entityId,'update',before,updated); return json(updated);
-      }
-      if (request.method === 'DELETE' && url.pathname.startsWith('/api/transactions/')) {
-        const entityId=url.pathname.split('/').pop()||'';const before=await env.DB.prepare(`SELECT * FROM transactions WHERE id=? AND deleted_at IS NULL`).bind(entityId).first<any>();if(!before)return json({error:'Transaction not found'},{status:404});
-        const deletedAt=now();await env.DB.prepare(`UPDATE transactions SET deleted_at=?,updated_at=? WHERE id=?`).bind(deletedAt,deletedAt,entityId).run();await audit(env,'transaction',entityId,'delete',before,{...before,deleted_at:deletedAt,updated_at:deletedAt});return json({ok:true});
-      }
-      return json({error:'Not found'},{status:404});
-    } catch(error) { console.error(error); return json({error:error instanceof Error?error.message:'Server error'},{status:500}); }
-  },
-};
+export interface Env { DB: D1Database; ASSETS: Fetcher; }
+const json=(data:unknown,init:ResponseInit={})=>new Response(JSON.stringify(data),{...init,headers:{'content-type':'application/json; charset=utf-8',...(init.headers||{})}});
+const now=()=>new Date().toISOString(); const id=()=>crypto.randomUUID();
+async function audit(env:Env,entityType:string,entityId:string,action:string,before:unknown,after:unknown){await env.DB.prepare(`INSERT INTO audit_log (id,occurred_at,entity_type,entity_id,action,before_json,after_json) VALUES (?,?,?,?,?,?,?)`).bind(id(),now(),entityType,entityId,action,before==null?null:JSON.stringify(before),after==null?null:JSON.stringify(after)).run()}
+async function body(r:Request){return await r.json<Record<string,unknown>>() }
+async function existing(env:Env,table:string,entityId:string){if(!new Set(['accounts','categories','payment_methods']).has(table))throw Error('Invalid entity');return env.DB.prepare(`SELECT * FROM ${table} WHERE id=? AND deleted_at IS NULL`).bind(entityId).first<any>()}
+export default {async fetch(request:Request,env:Env):Promise<Response>{try{const url=new URL(request.url);if(!url.pathname.startsWith('/api/'))return env.ASSETS.fetch(request);
+if(request.method==='GET'&&url.pathname==='/api/health'){const r=await env.DB.prepare('SELECT 1 AS ok').first<{ok:number}>();return json({ok:r?.ok===1})}
+if(request.method==='GET'&&url.pathname==='/api/bootstrap'){const [accounts,categories,methods,suggestions,payees]=await Promise.all([env.DB.prepare(`SELECT * FROM accounts WHERE deleted_at IS NULL AND is_active=1 ORDER BY name`).all(),env.DB.prepare(`SELECT * FROM categories WHERE deleted_at IS NULL AND is_active=1 ORDER BY parent_id IS NOT NULL,sort_order,name`).all(),env.DB.prepare(`SELECT * FROM payment_methods WHERE deleted_at IS NULL AND is_active=1 ORDER BY account_id,name`).all(),env.DB.prepare(`SELECT description FROM description_suggestions ORDER BY usage_count DESC,last_used_at DESC LIMIT 100`).all(),env.DB.prepare(`SELECT * FROM payees WHERE deleted_at IS NULL AND is_active=1 ORDER BY name`).all()]);return json({accounts:accounts.results,categories:categories.results,paymentMethods:methods.results,suggestions:suggestions.results.map((x:any)=>x.description),payees:payees.results})}
+if(request.method==='GET'&&url.pathname==='/api/search-options'){const q=(url.searchParams.get('q')||'').trim();if(!q)return json({descriptions:[],categories:[],methods:[],accounts:[],payees:[]});const s=`%${q}%`;const [descriptions,categories,methods,accounts,payees]=await Promise.all([env.DB.prepare(`SELECT description AS value,usage_count AS count FROM description_suggestions WHERE description LIKE ? ORDER BY usage_count DESC,last_used_at DESC LIMIT 8`).bind(s).all(),env.DB.prepare(`SELECT id,name,kind,parent_id FROM categories WHERE deleted_at IS NULL AND is_active=1 AND name LIKE ? ORDER BY name LIMIT 8`).bind(s).all(),env.DB.prepare(`SELECT id,name,account_id FROM payment_methods WHERE deleted_at IS NULL AND is_active=1 AND name LIKE ? ORDER BY name LIMIT 8`).bind(s).all(),env.DB.prepare(`SELECT id,name FROM accounts WHERE deleted_at IS NULL AND is_active=1 AND name LIKE ? ORDER BY name LIMIT 8`).bind(s).all(),env.DB.prepare(`SELECT id,name FROM payees WHERE deleted_at IS NULL AND is_active=1 AND name LIKE ? ORDER BY name LIMIT 8`).bind(s).all()]);return json({descriptions:descriptions.results,categories:categories.results,methods:methods.results,accounts:accounts.results,payees:payees.results})}
+if(request.method==='GET'&&url.pathname==='/api/transactions'){const limit=Math.min(Math.max(Number(url.searchParams.get('limit')||100),1),500),offset=Math.max(Number(url.searchParams.get('offset')||0),0),q=(url.searchParams.get('q')||'').trim(),type=url.searchParams.get('type'),account=url.searchParams.get('account'),category=url.searchParams.get('category'),method=url.searchParams.get('method');const clauses=['t.deleted_at IS NULL'];const params:unknown[]=[];if(q){clauses.push(`(LOWER(t.description) LIKE LOWER(?) OR LOWER(t.note) LIKE LOWER(?) OR LOWER(COALESCE(c.name,'')) LIKE LOWER(?) OR LOWER(COALESCE(p.name,'')) LIKE LOWER(?) OR LOWER(a.name) LIKE LOWER(?) OR LOWER(COALESCE(pm.name,'')) LIKE LOWER(?))`);const s=`%${q}%`;params.push(s,s,s,s,s,s)}if(type==='income'||type==='expense'){clauses.push('t.transaction_type=?');params.push(type)}if(account){clauses.push('t.account_id=?');params.push(account)}if(category){clauses.push('t.category_id=?');params.push(category)}if(method){clauses.push('t.payment_method_id=?');params.push(method)}const r=await env.DB.prepare(`SELECT t.*,a.name AS account_name,c.name AS category_name,p.name AS payee_name,pm.name AS payment_method_name FROM transactions t JOIN accounts a ON a.id=t.account_id LEFT JOIN categories c ON c.id=t.category_id LEFT JOIN payees p ON p.id=t.payee_id LEFT JOIN payment_methods pm ON pm.id=t.payment_method_id WHERE ${clauses.join(' AND ')} ORDER BY t.occurred_at DESC LIMIT ? OFFSET ?`).bind(...params,limit,offset).all();return json(r.results)}
+if(request.method==='GET'&&url.pathname.startsWith('/api/transactions/')&&url.pathname.endsWith('/audit')){const entityId=url.pathname.split('/')[3];const r=await env.DB.prepare(`SELECT * FROM audit_log WHERE entity_type='transaction' AND entity_id=? ORDER BY occurred_at DESC`).bind(entityId).all();return json(r.results)}
+if(request.method==='GET'&&url.pathname.startsWith('/api/transactions/')){const entityId=url.pathname.split('/')[3];const t=await env.DB.prepare(`SELECT t.*,a.name AS account_name,c.name AS category_name,p.name AS payee_name,pm.name AS payment_method_name FROM transactions t JOIN accounts a ON a.id=t.account_id LEFT JOIN categories c ON c.id=t.category_id LEFT JOIN payees p ON p.id=t.payee_id LEFT JOIN payment_methods pm ON pm.id=t.payment_method_id WHERE t.id=? AND t.deleted_at IS NULL`).bind(entityId).first<any>();if(!t)return json({error:'Transaction not found'},{status:404});const s=await env.DB.prepare(`SELECT s.*,c.name AS category_name FROM transaction_splits s LEFT JOIN categories c ON c.id=s.category_id WHERE s.transaction_id=? AND s.deleted_at IS NULL ORDER BY s.created_at`).bind(entityId).all();return json({...t,splits:s.results})}
+if(request.method==='GET'&&url.pathname==='/api/audit')return json((await env.DB.prepare(`SELECT * FROM audit_log ORDER BY occurred_at DESC LIMIT 300`).all()).results);
+if(request.method==='GET'&&url.pathname==='/api/dashboard'){const rows=await env.DB.prepare(`SELECT t.*,c.name AS category_name FROM transactions t LEFT JOIN categories c ON c.id=t.category_id WHERE t.deleted_at IS NULL`).all<any>(),accounts=await env.DB.prepare(`SELECT * FROM accounts WHERE deleted_at IS NULL AND is_active=1 ORDER BY name`).all<any>(),transactions=rows.results,today=new Date(),weekStart=new Date(today),monthStart=new Date(today.getFullYear(),today.getMonth(),1);weekStart.setHours(0,0,0,0);weekStart.setDate(today.getDate()-((today.getDay()+6)%7));const sums=(start:Date)=>transactions.reduce((r:any,t:any)=>{if(new Date(t.occurred_at)>=start)r[t.transaction_type]+=t.amount_minor;return r},{income:0,expense:0});const month=sums(monthStart),week=sums(weekStart),categories:Record<string,number>={};transactions.filter((t:any)=>t.transaction_type==='expense'&&new Date(t.occurred_at)>=monthStart).forEach((t:any)=>categories[t.category_name||'Uncategorized']=(categories[t.category_name||'Uncategorized']||0)+t.amount_minor);const balances=accounts.results.map((a:any)=>({...a,balance_minor:a.opening_balance_minor+transactions.filter((t:any)=>t.account_id===a.id).reduce((s:number,t:any)=>s+(t.transaction_type==='income'?t.amount_minor:-t.amount_minor),0)}));return json({week,month,categories,balances})}
+if(request.method==='POST'&&url.pathname==='/api/accounts'){const b=await body(request),name=String(b.name||'').trim();if(!name)return json({error:'Account name is required'},{status:400});const created=now(),account={id:id(),name,opening_balance_minor:Math.round(Number(b.openingBalance||0)*100),opening_balance_at:String(b.openingBalanceAt||created),is_active:1,created_at:created,updated_at:created,deleted_at:null};await env.DB.prepare(`INSERT INTO accounts(id,name,opening_balance_minor,opening_balance_at,is_active,created_at,updated_at) VALUES(?,?,?,?,?,?,?)`).bind(account.id,name,account.opening_balance_minor,account.opening_balance_at,1,created,created).run();await audit(env,'account',account.id,'create',null,account);return json(account,{status:201})}
+if(request.method==='PUT'&&url.pathname.startsWith('/api/accounts/')){const entityId=url.pathname.split('/').pop()||'',before=await existing(env,'accounts',entityId);if(!before)return json({error:'Account not found'},{status:404});const b=await body(request),name=String(b.name??before.name).trim(),opening=Math.round(Number(b.openingBalance??before.opening_balance_minor/100)*100);if(!name)return json({error:'Account name is required'},{status:400});const updated={...before,name,opening_balance_minor:opening,updated_at:now()};await env.DB.prepare(`UPDATE accounts SET name=?,opening_balance_minor=?,updated_at=? WHERE id=?`).bind(name,opening,updated.updated_at,entityId).run();await audit(env,'account',entityId,'update',before,updated);return json(updated)}
+if(request.method==='POST'&&url.pathname==='/api/categories'){const b=await body(request),name=String(b.name||'').trim(),kind=['expense','income','both'].includes(String(b.kind))?String(b.kind):'expense';if(!name)return json({error:'Category name is required'},{status:400});const created=now(),category={id:id(),name,parent_id:b.parentId?String(b.parentId):null,kind,sort_order:0,is_active:1,created_at:created,updated_at:created,deleted_at:null};await env.DB.prepare(`INSERT INTO categories(id,name,parent_id,kind,sort_order,is_active,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?)`).bind(category.id,name,category.parent_id,kind,0,1,created,created).run();await audit(env,'category',category.id,'create',null,category);return json(category,{status:201})}
+if(request.method==='PUT'&&url.pathname.startsWith('/api/categories/')){const entityId=url.pathname.split('/').pop()||'',before=await existing(env,'categories',entityId);if(!before)return json({error:'Category not found'},{status:404});const b=await body(request),name=String(b.name??before.name).trim(),parentId=b.parentId===null||b.parentId===''?null:String(b.parentId??before.parent_id),kind=['expense','income','both'].includes(String(b.kind))?String(b.kind):before.kind;if(!name)return json({error:'Category name is required'},{status:400});if(parentId===entityId)return json({error:'A category cannot be its own parent'},{status:400});const updated={...before,name,parent_id:parentId,kind,updated_at:now()};await env.DB.prepare(`UPDATE categories SET name=?,parent_id=?,kind=?,updated_at=? WHERE id=?`).bind(name,parentId,kind,updated.updated_at,entityId).run();await audit(env,'category',entityId,'update',before,updated);return json(updated)}
+if(request.method==='POST'&&url.pathname==='/api/payment-methods'){const b=await body(request),name=String(b.name||'').trim(),accountId=String(b.accountId||'');if(!name||!accountId)return json({error:'Payment method name and account are required'},{status:400});const created=now(),method={id:id(),account_id:accountId,name,is_active:1,created_at:created,updated_at:created,deleted_at:null};await env.DB.prepare(`INSERT INTO payment_methods(id,account_id,name,is_active,created_at,updated_at) VALUES(?,?,?,?,?,?)`).bind(method.id,accountId,name,1,created,created).run();await audit(env,'payment_method',method.id,'create',null,method);return json(method,{status:201})}
+if(request.method==='PUT'&&url.pathname.startsWith('/api/payment-methods/')){const entityId=url.pathname.split('/').pop()||'',before=await existing(env,'payment_methods',entityId);if(!before)return json({error:'Payment method not found'},{status:404});const b=await body(request),name=String(b.name??before.name).trim(),accountId=String(b.accountId??before.account_id);if(!name||!accountId)return json({error:'Payment method name and account are required'},{status:400});const updated={...before,name,account_id:accountId,updated_at:now()};await env.DB.prepare(`UPDATE payment_methods SET name=?,account_id=?,updated_at=? WHERE id=?`).bind(name,accountId,updated.updated_at,entityId).run();await audit(env,'payment_method',entityId,'update',before,updated);return json(updated)}
+if(request.method==='POST'&&url.pathname==='/api/transactions'){const b=await body(request),accountId=String(b.accountId||''),amount=Math.round(Number(b.amount||0)*100),type=String(b.type||'expense');if(!accountId||amount<=0||!['expense','income'].includes(type))return json({error:'Account, valid amount and type are required'},{status:400});const created=now(),occurredAt=String(b.occurredAt||created),description=String(b.description||'').trim(),note=String(b.note||''),categoryId=b.categoryId?String(b.categoryId):null,paymentMethodId=b.methodId?String(b.methodId):null,status=b.status==='uncleared'?'uncleared':'cleared',payeeName=String(b.payee||'').trim();let payeeId:string|null=null;if(payeeName){const found=await env.DB.prepare(`SELECT id FROM payees WHERE name=? AND deleted_at IS NULL LIMIT 1`).bind(payeeName).first<any>();payeeId=found?.id||id();if(!found)await env.DB.prepare(`INSERT INTO payees(id,name,is_active,created_at,updated_at) VALUES(?,?,?,?,?)`).bind(payeeId,payeeName,1,created,created).run()}const tx={id:id(),account_id:accountId,payment_method_id:paymentMethodId,category_id:categoryId,payee_id:payeeId,transaction_type:type,amount_minor:amount,occurred_at:occurredAt,description,note,status,parent_transaction_id:null,recurring_rule_id:null,transfer_id:null,is_split_parent:0,created_at:created,updated_at:created,deleted_at:null};await env.DB.prepare(`INSERT INTO transactions(id,account_id,payment_method_id,category_id,payee_id,transaction_type,amount_minor,occurred_at,description,note,status,parent_transaction_id,recurring_rule_id,transfer_id,is_split_parent,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`).bind(tx.id,tx.account_id,tx.payment_method_id,tx.category_id,tx.payee_id,tx.transaction_type,tx.amount_minor,tx.occurred_at,tx.description,tx.note,tx.status,null,null,null,0,created,created).run();if(description)await env.DB.prepare(`INSERT INTO description_suggestions(id,description,usage_count,last_used_at,created_at,updated_at) VALUES(?,?,?,?,?,?) ON CONFLICT(description) DO UPDATE SET usage_count=usage_count+1,last_used_at=excluded.last_used_at,updated_at=excluded.updated_at`).bind(id(),description,1,created,created,created).run();await audit(env,'transaction',tx.id,'create',null,tx);return json(tx,{status:201})}
+if(request.method==='PUT'&&url.pathname.startsWith('/api/transactions/')){const entityId=url.pathname.split('/').pop()||'',before=await env.DB.prepare(`SELECT * FROM transactions WHERE id=? AND deleted_at IS NULL`).bind(entityId).first<any>();if(!before)return json({error:'Transaction not found'},{status:404});const b=await body(request),amount=Math.round(Number(b.amount??(before.amount_minor/100))*100),type=['expense','income'].includes(String(b.type))?String(b.type):before.transaction_type;if(amount<=0)return json({error:'Amount must be greater than zero'},{status:400});const accountId=String(b.accountId??before.account_id),paymentMethodId=b.methodId===null?null:(b.methodId!==undefined?String(b.methodId):before.payment_method_id),categoryId=b.categoryId===null?null:(b.categoryId!==undefined?String(b.categoryId):before.category_id),description=String(b.description??before.description),note=String(b.note??before.note),occurredAt=String(b.occurredAt??before.occurred_at),status=b.status==='uncleared'?'uncleared':'cleared';const updated={...before,account_id:accountId,payment_method_id:paymentMethodId,category_id:categoryId,transaction_type:type,amount_minor:amount,occurred_at:occurredAt,description,note,status,updated_at:now()};await env.DB.prepare(`UPDATE transactions SET account_id=?,payment_method_id=?,category_id=?,transaction_type=?,amount_minor=?,occurred_at=?,description=?,note=?,status=?,updated_at=? WHERE id=?`).bind(accountId,paymentMethodId,categoryId,type,amount,occurredAt,description,note,status,updated.updated_at,entityId).run();await audit(env,'transaction',entityId,'update',before,updated);return json(updated)}
+if(request.method==='DELETE'&&url.pathname.startsWith('/api/transactions/')){const entityId=url.pathname.split('/').pop()||'',before=await env.DB.prepare(`SELECT * FROM transactions WHERE id=? AND deleted_at IS NULL`).bind(entityId).first<any>();if(!before)return json({error:'Transaction not found'},{status:404});const deletedAt=now();await env.DB.prepare(`UPDATE transactions SET deleted_at=?,updated_at=? WHERE id=?`).bind(deletedAt,deletedAt,entityId).run();await audit(env,'transaction',entityId,'delete',before,{...before,deleted_at:deletedAt,updated_at:deletedAt});return json({ok:true})}
+return json({error:'Not found'},{status:404})}catch(error){console.error(error);return json({error:error instanceof Error?error.message:'Server error'},{status:500})}}};
