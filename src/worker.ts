@@ -13,6 +13,11 @@ async function audit(env: Env, entityType: string, entityId: string, action: str
   await env.DB.prepare(`INSERT INTO audit_log (id, occurred_at, entity_type, entity_id, action, before_json, after_json) VALUES (?, ?, ?, ?, ?, ?, ?)`).bind(id(), now(), entityType, entityId, action, before == null ? null : JSON.stringify(before), after == null ? null : JSON.stringify(after)).run();
 }
 async function body(request: Request) { return await request.json<Record<string, unknown>>(); }
+async function existing(env: Env, table: string, entityId: string) {
+  const allowed = new Set(['accounts','categories','payment_methods']);
+  if (!allowed.has(table)) throw new Error('Invalid entity');
+  return env.DB.prepare(`SELECT * FROM ${table} WHERE id = ? AND deleted_at IS NULL`).bind(entityId).first<any>();
+}
 
 export default {
   async fetch(request: Request, env: Env): Promise<Response> {
@@ -55,24 +60,51 @@ export default {
         const balances=accounts.results.map((a:any)=>({...a,balance_minor:a.opening_balance_minor+transactions.filter((t:any)=>t.account_id===a.id).reduce((s:number,t:any)=>s+(t.transaction_type==='income'?t.amount_minor:-t.amount_minor),0)}));
         return json({week,month,categories,balances});
       }
+
       if (request.method === 'POST' && url.pathname === '/api/accounts') {
         const b=await body(request),name=String(b.name||'').trim(); if(!name)return json({error:'Account name is required'},{status:400});
         const created=now(),account={id:id(),name,opening_balance_minor:Math.round(Number(b.openingBalance||0)*100),opening_balance_at:String(b.openingBalanceAt||created),is_active:1,created_at:created,updated_at:created,deleted_at:null};
         await env.DB.prepare(`INSERT INTO accounts (id,name,opening_balance_minor,opening_balance_at,is_active,created_at,updated_at) VALUES (?,?,?,?,?,?,?)`).bind(account.id,account.name,account.opening_balance_minor,account.opening_balance_at,1,created,created).run();
         await audit(env,'account',account.id,'create',null,account); return json(account,{status:201});
       }
+      if (request.method === 'PUT' && url.pathname.startsWith('/api/accounts/')) {
+        const entityId=url.pathname.split('/').pop()||'', before=await existing(env,'accounts',entityId); if(!before)return json({error:'Account not found'},{status:404});
+        const b=await body(request),name=String(b.name??before.name).trim(),opening=Math.round(Number(b.openingBalance??before.opening_balance_minor/100)*100); if(!name)return json({error:'Account name is required'},{status:400});
+        const updated={...before,name,opening_balance_minor:opening,updated_at:now()};
+        await env.DB.prepare(`UPDATE accounts SET name=?, opening_balance_minor=?, updated_at=? WHERE id=?`).bind(name,opening,updated.updated_at,entityId).run();
+        await audit(env,'account',entityId,'update',before,updated); return json(updated);
+      }
+
       if (request.method === 'POST' && url.pathname === '/api/categories') {
-        const b=await body(request),name=String(b.name||'').trim(); if(!name)return json({error:'Category name is required'},{status:400});
-        const created=now(),category={id:id(),name,parent_id:b.parentId?String(b.parentId):null,kind:'both',sort_order:0,is_active:1,created_at:created,updated_at:created,deleted_at:null};
-        await env.DB.prepare(`INSERT INTO categories (id,name,parent_id,kind,sort_order,is_active,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?)`).bind(category.id,category.name,category.parent_id,'both',0,1,created,created).run();
+        const b=await body(request),name=String(b.name||'').trim(),kind=['expense','income','both'].includes(String(b.kind))?String(b.kind):'expense'; if(!name)return json({error:'Category name is required'},{status:400});
+        const created=now(),category={id:id(),name,parent_id:b.parentId?String(b.parentId):null,kind,sort_order:0,is_active:1,created_at:created,updated_at:created,deleted_at:null};
+        await env.DB.prepare(`INSERT INTO categories (id,name,parent_id,kind,sort_order,is_active,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?)`).bind(category.id,category.name,category.parent_id,kind,0,1,created,created).run();
         await audit(env,'category',category.id,'create',null,category); return json(category,{status:201});
       }
+      if (request.method === 'PUT' && url.pathname.startsWith('/api/categories/')) {
+        const entityId=url.pathname.split('/').pop()||'', before=await existing(env,'categories',entityId); if(!before)return json({error:'Category not found'},{status:404});
+        const b=await body(request),name=String(b.name??before.name).trim(),parentId=b.parentId===null||b.parentId===''?null:String(b.parentId??before.parent_id),kind=['expense','income','both'].includes(String(b.kind))?String(b.kind):before.kind;
+        if(!name)return json({error:'Category name is required'},{status:400});
+        if(parentId===entityId)return json({error:'A category cannot be its own parent'},{status:400});
+        const updated={...before,name,parent_id:parentId,kind,updated_at:now()};
+        await env.DB.prepare(`UPDATE categories SET name=?, parent_id=?, kind=?, updated_at=? WHERE id=?`).bind(name,parentId,kind,updated.updated_at,entityId).run();
+        await audit(env,'category',entityId,'update',before,updated); return json(updated);
+      }
+
       if (request.method === 'POST' && url.pathname === '/api/payment-methods') {
         const b=await body(request),name=String(b.name||'').trim(),accountId=String(b.accountId||''); if(!name||!accountId)return json({error:'Payment method name and account are required'},{status:400});
         const created=now(),method={id:id(),account_id:accountId,name,is_active:1,created_at:created,updated_at:created,deleted_at:null};
         await env.DB.prepare(`INSERT INTO payment_methods (id,account_id,name,is_active,created_at,updated_at) VALUES (?,?,?,?,?,?)`).bind(method.id,method.account_id,method.name,1,created,created).run();
         await audit(env,'payment_method',method.id,'create',null,method); return json(method,{status:201});
       }
+      if (request.method === 'PUT' && url.pathname.startsWith('/api/payment-methods/')) {
+        const entityId=url.pathname.split('/').pop()||'', before=await existing(env,'payment_methods',entityId); if(!before)return json({error:'Payment method not found'},{status:404});
+        const b=await body(request),name=String(b.name??before.name).trim(),accountId=String(b.accountId??before.account_id); if(!name||!accountId)return json({error:'Payment method name and account are required'},{status:400});
+        const updated={...before,name,account_id:accountId,updated_at:now()};
+        await env.DB.prepare(`UPDATE payment_methods SET name=?, account_id=?, updated_at=? WHERE id=?`).bind(name,accountId,updated.updated_at,entityId).run();
+        await audit(env,'payment_method',entityId,'update',before,updated); return json(updated);
+      }
+
       if (request.method === 'POST' && url.pathname === '/api/transactions') {
         const b=await body(request),accountId=String(b.accountId||''),amount=Math.round(Number(b.amount||0)*100),type=String(b.type||'expense');
         if(!accountId||amount<=0||!['expense','income'].includes(type))return json({error:'Account, valid amount and type are required'},{status:400});
