@@ -225,8 +225,91 @@ function Detail({ label, value }: { label: string; value: string }) { return <di
 
 function AuditPage({ close }: { close: () => void }) {
   const [rows, setRows] = useState<Audit[]>([]);
-  useEffect(() => { api('/api/audit').then(setRows).catch(() => setRows([])); }, []);
-  return <div className="overlay"><div className="modal auditmodal"><div className="modalhead"><div><h2>Audit log</h2><p>Complete change history for your data.</p></div><button onClick={close}>×</button></div>{rows.map(a => <div className="globalaudit" key={a.id}><div className="auditbadge">{a.action === 'create' ? '＋' : a.action === 'update' ? '↻' : '−'}</div><div><strong>{a.action} · {a.entity_type}</strong><span>{new Date(a.occurred_at).toLocaleString('en-IN')} · {a.entity_id}</span></div></div>)}{!rows.length && <Empty text="No audit events yet."/>}</div></div>;
+  const [accounts, setAccounts] = useState<Account[]>([]);
+  const [categories, setCategories] = useState<Category[]>([]);
+  const [methods, setMethods] = useState<Method[]>([]);
+  const [txs, setTxs] = useState<Tx[]>([]);
+  const [loadError, setLoadError] = useState('');
+
+  useEffect(() => {
+    Promise.all([
+      api('/api/audit'),
+      api('/api/bootstrap'),
+      api('/api/transactions?limit=500')
+    ]).then(([a, b, t]) => {
+      setRows(a || []);
+      setAccounts(b.accounts || []);
+      setCategories(b.categories || []);
+      setMethods(b.paymentMethods || []);
+      setTxs(t || []);
+    }).catch(e => setLoadError(e instanceof Error ? e.message : 'Unable to load audit log'));
+  }, []);
+
+  const parse = (value: string | null) => {
+    if (!value) return null;
+    try { return JSON.parse(value); } catch { return null; }
+  };
+
+  const entityLabel = (a: Audit) => {
+    if (a.entity_type === 'transaction') {
+      const t = txs.find(x => x.id === a.entity_id);
+      if (t) return t.description || t.payee_name || `Transaction · ${money(t.amount_minor)}`;
+      return 'Transaction';
+    }
+    if (a.entity_type === 'account') return accounts.find(x => x.id === a.entity_id)?.name || 'Account';
+    if (a.entity_type === 'category') return categories.find(x => x.id === a.entity_id)?.name || 'Category';
+    if (a.entity_type === 'payment_method') return methods.find(x => x.id === a.entity_id)?.name || 'Payment method';
+    return a.entity_type.replace(/_/g, ' ');
+  };
+
+  const fieldLabel = (key: string) => ({
+    amount_minor: 'Amount', transaction_type: 'Type', occurred_at: 'Date & time', description: 'Description', note: 'Note',
+    status: 'Status', account_id: 'Account', payment_method_id: 'Payment method', category_id: 'Category', payee_id: 'Payee / payer',
+    parent_id: 'Parent category', kind: 'Type', opening_balance_minor: 'Opening balance', accountId: 'Account'
+  } as Record<string, string>)[key] || key.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
+
+  const valueLabel = (key: string, value: any) => {
+    if (value === null || value === undefined || value === '') return '—';
+    if (key === 'amount_minor' || key === 'opening_balance_minor') return money(Number(value));
+    if (key === 'transaction_type') return value === 'income' ? 'Income' : 'Expense';
+    if (key === 'account_id') return accounts.find(x => x.id === value)?.name || String(value);
+    if (key === 'category_id') return categories.find(x => x.id === value)?.name || String(value);
+    if (key === 'payment_method_id') return methods.find(x => x.id === value)?.name || String(value);
+    if (key === 'payee_id') return String(value);
+    if (key === 'occurred_at' || key.endsWith('_at')) {
+      const d = new Date(value);
+      if (!Number.isNaN(d.getTime())) return d.toLocaleString('en-IN');
+    }
+    return String(value);
+  };
+
+  const changes = (a: Audit) => {
+    const before = parse(a.before_json);
+    const after = parse(a.after_json);
+    if (!before && !after) return [] as { key: string; before: any; after: any }[];
+    const keys = Array.from(new Set([...Object.keys(before || {}), ...Object.keys(after || {})]));
+    return keys.filter(k => JSON.stringify(before?.[k]) !== JSON.stringify(after?.[k]))
+      .filter(k => !['id', 'created_at', 'updated_at', 'deleted_at', 'sort_order', 'is_active'].includes(k))
+      .map(k => ({ key: k, before: before?.[k], after: after?.[k] }));
+  };
+
+  const actionText = (a: Audit) => a.action === 'create' ? 'Created' : a.action === 'update' ? 'Updated' : a.action === 'delete' ? 'Deleted' : a.action;
+  const typeText = (a: Audit) => a.entity_type === 'payment_method' ? 'Payment method' : a.entity_type.charAt(0).toUpperCase() + a.entity_type.slice(1);
+
+  return <div className="overlay"><div className="modal auditmodal"><div className="modalhead"><div><span className="eyebrow">HISTORY</span><h2>Audit log</h2><p>Every change to your expense data, in plain language.</p></div><button onClick={close}>×</button></div>
+    {loadError && <div className="error">{loadError}</div>}
+    {!loadError && !rows.length && <Empty text="No audit events yet."/>}
+    {rows.map(a => <div className="globalaudit" key={a.id}>
+      <div className="auditbadge">{a.action === 'create' ? '＋' : a.action === 'update' ? '↻' : '−'}</div>
+      <div className="auditcontent">
+        <div className="auditheadline"><strong>{actionText(a)} {typeText(a)}</strong><small>{new Date(a.occurred_at).toLocaleString('en-IN')}</small></div>
+        <div className="auditentity">{entityLabel(a)}</div>
+        {a.action === 'update' && changes(a).map(c => <div className="auditchange" key={c.key}><span>{fieldLabel(c.key)}</span><div><del>{valueLabel(c.key, c.before)}</del><b>→</b><strong>{valueLabel(c.key, c.after)}</strong></div></div>)}
+        {a.action === 'create' && <div className="auditcreated">Record created. {parse(a.after_json)?.name ? `Name: ${parse(a.after_json).name}.` : ''}</div>}
+        {a.action === 'delete' && <div className="auditcreated">Record deleted. It remains in the audit history.</div>}
+      </div>
+    </div>)}
+  </div></div>;
 }
 
 function AccountModal({ item, close, saved }: { item?: Account; close: () => void; saved: () => void }) {
