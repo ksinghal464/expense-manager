@@ -2,8 +2,12 @@ name = "expense-manager"
 main = "src/worker.ts"
 compatibility_date = "2026-09-08"
 
+[assets]
+directory = "./dist"
+not_found_handling = "single-page-application"
+
 [[d1_databases]]
 binding = "DB"
 database_name = "expense-manager"
-database_id = "REPLACE_WITH_D1_DATABASE_ID"
+database_id = "9fa680d1-3ad3-4712-93ed-4ce2ea9f7025"
 migrations_dir = "migrations"
