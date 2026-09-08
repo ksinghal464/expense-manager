@@ -11,3 +11,11 @@ binding = "DB"
 database_name = "expense-manager"
 database_id = "9fa680d1-3ad3-4712-93ed-4ce2ea9f7025"
 migrations_dir = "migrations"
+
+# Daily materialization of due recurring rules (00:30 UTC ~ 06:00 IST).
+[triggers]
+crons = ["30 0 * * *"]
+
+# Secrets (set via `wrangler secret put <NAME>`):
+#   GOOGLE_DRIVE_SA_KEY  - base64/service-account JSON for Drive backup/restore (optional)
+#   DRIVE_BACKUP_FILE_ID - the Drive file used to store the JSON backup (optional)

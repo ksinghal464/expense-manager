@@ -1,0 +1,603 @@
+/* ============ extra.css — styles for the rebuilt client ============ */
+
+/* --- app shell --- */
+.appbar {
+  align-items: center;
+  margin-bottom: 20px;
+  padding-bottom: 18px;
+  border-bottom: 1px solid #e5eaf0;
+}
+.appbar .brand {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.appbar .mark {
+  width: 46px;
+  height: 46px;
+  flex: none;
+  display: grid;
+  place-items: center;
+  background: #1677d2;
+  color: #fff;
+  border-radius: 14px;
+  font-size: 22px;
+  font-weight: 800;
+  box-shadow: 0 6px 16px #1677d233;
+}
+.appbar h1 {
+  font-size: 22px;
+  letter-spacing: -.02em;
+}
+.appbar p {
+  font-size: 13px;
+  color: #718096;
+  margin-top: 2px;
+}
+.pages {
+  min-height: 55vh;
+}
+.apperror {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-bottom: 16px;
+  padding: 16px 18px;
+  border: 1px solid #f1c3c9;
+  background: #fff5f6;
+  border-radius: 14px;
+}
+
+/* --- account balances --- */
+.balances {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+  gap: 12px;
+}
+.balance {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  border: 1px solid #eef2f6;
+  background: #fbfcfd;
+  border-radius: 14px;
+  padding: 14px;
+}
+.balance span {
+  color: #7b8797;
+  font-size: 12px;
+  font-weight: 600;
+}
+.balance b {
+  font-size: 20px;
+}
+
+/* --- bottom tab bar --- */
+.tabbar {
+  display: flex;
+  justify-content: space-around;
+  gap: 0;
+}
+.tabbar button {
+  flex: 1 1 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 3px;
+  border: 0;
+  background: none;
+  color: #8592a4;
+  font-size: 11px;
+  font-weight: 600;
+  padding: 9px 4px;
+}
+.tabbar button .icon {
+  font-size: 20px;
+  line-height: 1;
+}
+.tabbar button.selected {
+  color: #1677d2;
+}
+
+/* --- toast --- */
+.toast {
+  position: fixed;
+  left: 50%;
+  bottom: 86px;
+  transform: translateX(-50%);
+  max-width: 88vw;
+  background: #172033;
+  color: #fff;
+  padding: 11px 18px;
+  border-radius: 12px;
+  font-size: 13px;
+  font-weight: 600;
+  z-index: 60;
+  box-shadow: 0 12px 30px #101a2944;
+}
+
+/* --- generic --- */
+.strikethrough {
+  text-decoration: line-through;
+  color: #9aa6b6;
+}
+.confirmrow {
+  display: inline-flex;
+  gap: 8px;
+  align-items: center;
+}
+.detail-empty {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  align-items: flex-start;
+  padding: 12px;
+}
+.field textarea {
+  width: 100%;
+  border: 1px solid #d8e0e9;
+  background: #fbfcfd;
+  border-radius: 11px;
+  padding: 11px;
+  outline: 0;
+  resize: vertical;
+}
+.field textarea:focus {
+  border-color: #6c9bd1;
+  box-shadow: 0 0 0 3px #6c9bd122;
+}
+input[type='file'] {
+  font-size: 13px;
+  color: #56667a;
+}
+
+/* --- chips --- */
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  border: 1px solid #dbe2ea;
+  background: #f2f6fb;
+  color: #33415a;
+  border-radius: 999px;
+  padding: 6px 11px;
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1;
+}
+.chip i {
+  font-style: normal;
+  opacity: .6;
+}
+.chip.ghost {
+  background: #fff;
+}
+.chip.danger {
+  color: #c23b47;
+  border-color: #f2cdd2;
+  background: #fff6f7;
+}
+.chip:hover {
+  filter: brightness(.97);
+}
+
+/* --- tags (tx form) --- */
+.tagrow {
+  display: grid;
+  gap: 8px;
+}
+.tagrow > span {
+  font-size: 12px;
+  font-weight: 750;
+  color: #56667a;
+}
+.tagchips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
+  align-items: center;
+  padding: 9px;
+  border: 1px solid #d8e0e9;
+  background: #fbfcfd;
+  border-radius: 11px;
+}
+.tagchips input {
+  flex: 1 1 160px;
+  min-width: 120px;
+  border: 0;
+  outline: 0;
+  background: none;
+  padding: 6px;
+  font-size: 13px;
+}
+
+/* --- advanced + splits editor --- */
+.toggle-adv {
+  padding: 4px 0;
+}
+.adv {
+  display: grid;
+  gap: 16px;
+  padding-top: 14px;
+  border-top: 1px dashed #e2e7ed;
+}
+.adv h4 {
+  margin: 0 0 8px;
+  font-size: 14px;
+}
+.splits {
+  display: grid;
+  gap: 10px;
+}
+.splitshead {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+.splitshead h4 {
+  margin: 0;
+  font-size: 14px;
+}
+.splitrow {
+  display: grid;
+  grid-template-columns: 26px 1.4fr 1fr 1.4fr 34px;
+  gap: 8px;
+  align-items: center;
+}
+.splitidx {
+  width: 26px;
+  height: 26px;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  background: #eef2f6;
+  color: #56667a;
+  font-size: 12px;
+  font-weight: 700;
+}
+.splitrow input,
+.splitrow select {
+  width: 100%;
+  border: 1px solid #d8e0e9;
+  background: #fbfcfd;
+  border-radius: 10px;
+  padding: 10px;
+  outline: 0;
+}
+.splitrow select {
+  font-size: 13px;
+}
+.splitrm {
+  width: 34px;
+  height: 38px;
+  border: 1px solid #f2cdd2;
+  background: #fff6f7;
+  color: #c23b47;
+  border-radius: 10px;
+  font-size: 16px;
+}
+.splitsum {
+  font-size: 13px;
+  font-weight: 700;
+  padding: 9px 12px;
+  border-radius: 10px;
+  text-align: right;
+}
+.splitsum.ok {
+  background: #eaf5ef;
+  color: #14784f;
+}
+.splitsum.bad {
+  background: #fdeef0;
+  color: #c23b47;
+}
+
+/* --- amount prefix (recurring form) --- */
+.inprefix {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  border: 1px solid #d8e0e9;
+  background: #fbfcfd;
+  border-radius: 11px;
+  padding-left: 12px;
+}
+.inprefix input {
+  flex: 1;
+  border: 0 !important;
+  background: none;
+  padding: 11px;
+}
+
+/* --- detail extras --- */
+.detailtags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
+  margin: 14px 0;
+}
+.mini {
+  border: 1px solid #eef2f6;
+  background: #fbfcfd;
+  border-radius: 14px;
+  padding: 14px;
+  margin-top: 14px;
+  display: grid;
+  gap: 10px;
+}
+.mini h4 {
+  margin: 0;
+  font-size: 12px;
+  letter-spacing: .03em;
+  color: #56667a;
+  text-transform: uppercase;
+}
+.splitview {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 9px 11px;
+  background: #fff;
+  border: 1px solid #eef2f6;
+  border-radius: 10px;
+}
+.splitview span {
+  color: #4a586c;
+  font-size: 13px;
+}
+.attachrow {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 11px;
+  background: #fff;
+  border: 1px solid #eef2f6;
+  border-radius: 10px;
+}
+.attachkind {
+  font-size: 16px;
+}
+.attachrow a {
+  flex: 1;
+  color: #1769d1;
+  word-break: break-all;
+  font-size: 13px;
+}
+.attachform {
+  display: grid;
+  grid-template-columns: 110px 1fr 130px auto;
+  gap: 8px;
+  margin-top: 4px;
+  align-items: center;
+}
+.noteform {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+  margin-top: 4px;
+  align-items: end;
+}
+.attachform select,
+.attachform input,
+.noteform input {
+  border: 1px solid #d8e0e9;
+  background: #fff;
+  border-radius: 10px;
+  padding: 10px;
+  outline: 0;
+  font-size: 13px;
+}
+
+/* --- notes rows --- */
+.noterow {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 9px 0;
+}
+.notedone {
+  width: 22px;
+  height: 22px;
+  flex: none;
+  border: 1px solid #cfd8e3;
+  border-radius: 50%;
+  background: #fff;
+  color: #9aa6b6;
+  font-size: 12px;
+  margin-top: 2px;
+}
+.noterow .notemain,
+.noterow > div {
+  flex: 1;
+  min-width: 0;
+}
+.noterow strong {
+  display: block;
+}
+.noterow p {
+  margin: 2px 0 0;
+  color: #5c6b80;
+  font-size: 13px;
+}
+.noterow small {
+  display: block;
+  color: #9aa6b6;
+  font-size: 11px;
+  margin-top: 3px;
+}
+
+/* --- recurring rows --- */
+.recurringrow {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 13px 0;
+  border-bottom: 1px solid #edf0f4;
+}
+.recurringrow:last-child {
+  border-bottom: 0;
+}
+.recurringrow b {
+  white-space: nowrap;
+}
+.recurringactions {
+  display: flex;
+  gap: 6px;
+  flex: none;
+}
+.recurringactions .chip {
+  padding: 7px 10px;
+}
+
+/* --- category list (manage) --- */
+.catlist {
+  display: grid;
+  gap: 12px;
+}
+.catgroup {
+  display: grid;
+  gap: 8px;
+}
+.catlist .catrow {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  border: 1px solid #eef2f6;
+  border-radius: 12px;
+  background: #fff;
+}
+.catlist .catrow.child {
+  margin-left: 18px;
+  background: #fbfcfd;
+  border-style: dashed;
+}
+.catlist .catrow > div strong {
+  display: block;
+}
+.catlist .catrow > div span {
+  display: block;
+  color: #7b8797;
+  font-size: 12px;
+  margin-top: 2px;
+}
+.catlist .catrow .outline {
+  margin-left: auto;
+}
+.catlist .branch {
+  color: #b6c0cc;
+  font-size: 14px;
+}
+.catdot.small {
+  width: 28px;
+  height: 28px;
+  font-size: 13px;
+}
+.manage-row.compact {
+  padding: 9px 0;
+}
+
+/* --- audit diff --- */
+.auditdiff {
+  display: grid;
+  gap: 5px;
+  margin-top: 8px;
+}
+.auditdiff > div {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  flex-wrap: wrap;
+}
+.auditdiff span {
+  color: #7b8797;
+  min-width: 90px;
+}
+.auditdiff del {
+  color: #c23b47;
+}
+.auditdiff b {
+  color: #9aa6b6;
+}
+.auditdiff strong {
+  color: #14784f;
+}
+
+/* --- import / export --- */
+.summary {
+  background: #eaf5ef;
+  border: 1px solid #bfe6d1;
+  color: #14784f;
+  padding: 12px 14px;
+  border-radius: 12px;
+  font-size: 13px;
+  margin-bottom: 6px;
+}
+.io {
+  padding: 16px 0;
+  border-top: 1px solid #eef2f6;
+}
+.io:first-of-type {
+  border-top: 0;
+}
+.io h3 {
+  font-size: 14px;
+  margin-bottom: 8px;
+}
+.iorow {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+  align-items: center;
+}
+.iorow.close {
+  margin-top: 18px;
+  justify-content: flex-end;
+  border-top: 0;
+  padding-top: 0;
+}
+.iohint {
+  color: #7b8797;
+  font-size: 12px;
+  margin-bottom: 10px;
+}
+.warn {
+  background: #fdeef0;
+  border: 1px solid #f2cdd2;
+  color: #c23b47;
+  padding: 10px 12px;
+  border-radius: 10px;
+  font-size: 12px;
+  margin-top: 12px;
+}
+
+/* --- wide modal --- */
+.witemod {
+  width: min(860px, 100%);
+}
+
+/* --- responsive --- */
+@media (max-width: 650px) {
+  .splitrow {
+    grid-template-columns: 26px 1fr 34px;
+  }
+  .splitrow input:last-of-type {
+    grid-column: 1 / -1;
+  }
+  .attachform {
+    grid-template-columns: 1fr 1fr;
+  }
+  .attachform select {
+    grid-column: 1 / -1;
+  }
+  .noteform {
+    grid-template-columns: 1fr;
+  }
+  .recurringrow {
+    flex-wrap: wrap;
+  }
+}
