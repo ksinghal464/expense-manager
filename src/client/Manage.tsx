@@ -5,7 +5,16 @@ import { money, fmtDateTime, toInput, parseJson } from './lib';
 import { Empty, Err, Segmented, FieldsModal } from './ui';
 import { ImportExport } from './ImportExport';
 import { TxRow } from './TxRow';
-import type { Account, Category, PaymentMethod, Payee, Tag, AuditEntry, CategoryKind, TxView } from '../shared/types';
+import type {
+  Account,
+  Category,
+  PaymentMethod,
+  Payee,
+  Tag,
+  AuditEntry,
+  CategoryKind,
+  TxView,
+} from '../shared/types';
 
 type Tab = 'accounts' | 'categories' | 'methods' | 'payees' | 'tags' | 'data' | 'trash' | 'audit';
 
@@ -43,7 +52,17 @@ export function Manage() {
   );
 }
 
-function SectionHead({ title, sub, onAdd, addLabel }: { title: string; sub: string; onAdd: () => void; addLabel: string }) {
+function SectionHead({
+  title,
+  sub,
+  onAdd,
+  addLabel,
+}: {
+  title: string;
+  sub: string;
+  onAdd: () => void;
+  addLabel: string;
+}) {
   return (
     <div className="managerhead">
       <div>
@@ -85,7 +104,12 @@ function AccountsTab() {
 
   return (
     <section className="card manager">
-      <SectionHead title="Accounts" sub="Balances and account-specific payment methods." onAdd={() => setCreating(true)} addLabel="＋ Add account" />
+      <SectionHead
+        title="Accounts"
+        sub="Balances and account-specific payment methods."
+        onAdd={() => setCreating(true)}
+        addLabel="＋ Add account"
+      />
       {accounts.map((a) => (
         <div className="manage-row" key={a.id}>
           <div className="roundicon">▣</div>
@@ -96,22 +120,48 @@ function AccountsTab() {
           <button className="outline" onClick={() => setEditing(a)}>
             Edit
           </button>
-          <DelBtn onDel={async () => { await api.deleteAccount(a.id); await refresh(); toast('Account deleted'); }} />
+          <DelBtn
+            onDel={async () => {
+              await api.deleteAccount(a.id);
+              await refresh();
+              toast('Account deleted');
+            }}
+          />
         </div>
       ))}
       {!accounts.length && <Empty text="No accounts yet." />}
       {(creating || editing) && (
         <FieldsModal
           title={editing ? 'Edit account' : 'Add account'}
-          close={() => { setCreating(false); setEditing(null); }}
+          close={() => {
+            setCreating(false);
+            setEditing(null);
+          }}
           fields={[
             { key: 'name', label: 'Account name', required: true },
-            { key: 'openingBalance', label: 'Opening balance', type: 'number', defaultValue: editing ? toInput(editing.opening_balance_minor) : '0' },
+            {
+              key: 'openingBalance',
+              label: 'Opening balance',
+              type: 'number',
+              defaultValue: editing ? toInput(editing.opening_balance_minor) : '0',
+            },
             { key: 'currency', label: 'Currency', defaultValue: editing?.currency || 'INR' },
           ]}
-          initial={editing ? { name: editing.name, openingBalance: toInput(editing.opening_balance_minor), currency: editing.currency } : undefined}
+          initial={
+            editing
+              ? {
+                  name: editing.name,
+                  openingBalance: toInput(editing.opening_balance_minor),
+                  currency: editing.currency,
+                }
+              : undefined
+          }
           onSave={async (v) => {
-            await api.saveAccount(editing?.id || null, { name: v.name, openingBalance: parseFloat(v.openingBalance) || 0, currency: v.currency || 'INR' });
+            await api.saveAccount(editing?.id || null, {
+              name: v.name,
+              openingBalance: parseFloat(v.openingBalance) || 0,
+              currency: v.currency || 'INR',
+            });
             await refresh();
             toast(editing ? 'Account updated' : 'Account added');
           }}
@@ -130,20 +180,38 @@ function CategoriesTab() {
 
   const shown = categories.filter((c) => kind === 'all' || c.kind === kind || c.kind === 'both');
   const roots = shown.filter((c) => !c.parent_id);
-  const topOptions = categories.filter((c) => !c.parent_id).map((c) => ({ value: c.id, label: c.name }));
+  const topOptions = categories
+    .filter((c) => !c.parent_id)
+    .map((c) => ({ value: c.id, label: c.name }));
 
   return (
     <section className="card manager">
-      <SectionHead title="Categories" sub="Build a clear hierarchy for expenses and income." onAdd={() => setCreating(true)} addLabel="＋ Add category" />
-      <Segmented value={kind} onChange={setKind} options={[['all', 'All'], ['expense', 'Expenses'], ['income', 'Income']]} />
+      <SectionHead
+        title="Categories"
+        sub="Build a clear hierarchy for expenses and income."
+        onAdd={() => setCreating(true)}
+        addLabel="＋ Add category"
+      />
+      <Segmented
+        value={kind}
+        onChange={setKind}
+        options={[
+          ['all', 'All'],
+          ['expense', 'Expenses'],
+          ['income', 'Income'],
+        ]}
+      />
       <div className="catlist">
         {roots.map((r) => {
           const children = shown.filter((c) => c.parent_id === r.id);
-          const kindLabel = r.kind === 'both' ? 'Expense + Income' : r.kind === 'income' ? 'Income' : 'Expense';
+          const kindLabel =
+            r.kind === 'both' ? 'Expense + Income' : r.kind === 'income' ? 'Income' : 'Expense';
           return (
             <div className="catgroup" key={r.id}>
               <div className="catrow root">
-                <div className="catdot">{r.kind === 'income' ? '↗' : r.kind === 'expense' ? '↘' : '↕'}</div>
+                <div className="catdot">
+                  {r.kind === 'income' ? '↗' : r.kind === 'expense' ? '↘' : '↕'}
+                </div>
                 <div>
                   <strong>{r.name}</strong>
                   <span>
@@ -153,20 +221,40 @@ function CategoriesTab() {
                 <button className="outline" onClick={() => setEditing(r)}>
                   Edit
                 </button>
-                <DelBtn onDel={async () => { await api.deleteCategory(r.id); await refresh(); toast('Category deleted'); }} />
+                <DelBtn
+                  onDel={async () => {
+                    await api.deleteCategory(r.id);
+                    await refresh();
+                    toast('Category deleted');
+                  }}
+                />
               </div>
               {children.map((c) => (
                 <div className="catrow child" key={c.id}>
                   <div className="branch">└</div>
-                  <div className="catdot small">{c.kind === 'income' ? '↗' : c.kind === 'expense' ? '↘' : '↕'}</div>
+                  <div className="catdot small">
+                    {c.kind === 'income' ? '↗' : c.kind === 'expense' ? '↘' : '↕'}
+                  </div>
                   <div>
                     <strong>{c.name}</strong>
-                    <span>{c.kind === 'both' ? 'Expense + Income' : c.kind === 'income' ? 'Income' : 'Expense'}</span>
+                    <span>
+                      {c.kind === 'both'
+                        ? 'Expense + Income'
+                        : c.kind === 'income'
+                          ? 'Income'
+                          : 'Expense'}
+                    </span>
                   </div>
                   <button className="outline" onClick={() => setEditing(c)}>
                     Edit
                   </button>
-                  <DelBtn onDel={async () => { await api.deleteCategory(c.id); await refresh(); toast('Category deleted'); }} />
+                  <DelBtn
+                    onDel={async () => {
+                      await api.deleteCategory(c.id);
+                      await refresh();
+                      toast('Category deleted');
+                    }}
+                  />
                 </div>
               ))}
             </div>
@@ -178,19 +266,45 @@ function CategoriesTab() {
       {(creating || editing) && (
         <FieldsModal
           title={editing ? 'Edit category' : 'Add category'}
-          close={() => { setCreating(false); setEditing(null); }}
+          close={() => {
+            setCreating(false);
+            setEditing(null);
+          }}
           fields={[
             { key: 'name', label: 'Name', required: true },
-            { key: 'kind', label: 'Type', type: 'select', options: [
-              { value: 'expense', label: 'Expense' },
-              { value: 'income', label: 'Income' },
-              { value: 'both', label: 'Expense + Income' },
-            ], defaultValue: 'expense' },
-            { key: 'parentId', label: 'Parent category', type: 'select', options: [{ value: '', label: 'No parent — top level' }, ...topOptions.filter((o) => o.value !== editing?.id)], defaultValue: '' },
+            {
+              key: 'kind',
+              label: 'Type',
+              type: 'select',
+              options: [
+                { value: 'expense', label: 'Expense' },
+                { value: 'income', label: 'Income' },
+                { value: 'both', label: 'Expense + Income' },
+              ],
+              defaultValue: 'expense',
+            },
+            {
+              key: 'parentId',
+              label: 'Parent category',
+              type: 'select',
+              options: [
+                { value: '', label: 'No parent — top level' },
+                ...topOptions.filter((o) => o.value !== editing?.id),
+              ],
+              defaultValue: '',
+            },
           ]}
-          initial={editing ? { name: editing.name, kind: editing.kind, parentId: editing.parent_id || '' } : undefined}
+          initial={
+            editing
+              ? { name: editing.name, kind: editing.kind, parentId: editing.parent_id || '' }
+              : undefined
+          }
           onSave={async (v) => {
-            await api.saveCategory(editing?.id || null, { name: v.name, kind: v.kind as CategoryKind, parentId: v.parentId || null });
+            await api.saveCategory(editing?.id || null, {
+              name: v.name,
+              kind: v.kind as CategoryKind,
+              parentId: v.parentId || null,
+            });
             await refresh();
             toast(editing ? 'Category updated' : 'Category added');
           }}
@@ -209,7 +323,12 @@ function MethodsTab() {
 
   return (
     <section className="card manager">
-      <SectionHead title="Payment methods" sub="Methods are grouped by the account they belong to." onAdd={() => setCreating(true)} addLabel="＋ Add payment method" />
+      <SectionHead
+        title="Payment methods"
+        sub="Methods are grouped by the account they belong to."
+        onAdd={() => setCreating(true)}
+        addLabel="＋ Add payment method"
+      />
       {accounts.map((a) => {
         const ms = methods.filter((m) => m.account_id === a.id);
         return (
@@ -228,7 +347,13 @@ function MethodsTab() {
                 <button className="outline" onClick={() => setEditing(m)}>
                   Edit
                 </button>
-                <DelBtn onDel={async () => { await api.deletePaymentMethod(m.id); await refresh(); toast('Method deleted'); }} />
+                <DelBtn
+                  onDel={async () => {
+                    await api.deletePaymentMethod(m.id);
+                    await refresh();
+                    toast('Method deleted');
+                  }}
+                />
               </div>
             ))}
             {!ms.length && <div className="groupempty">No methods for this account.</div>}
@@ -240,14 +365,27 @@ function MethodsTab() {
       {(creating || editing) && (
         <FieldsModal
           title={editing ? 'Edit payment method' : 'Add payment method'}
-          close={() => { setCreating(false); setEditing(null); }}
+          close={() => {
+            setCreating(false);
+            setEditing(null);
+          }}
           fields={[
             { key: 'name', label: 'Payment method', required: true },
-            { key: 'accountId', label: 'Account', type: 'select', options: accountOptions, required: true, defaultValue: editing?.account_id || accounts[0]?.id || '' },
+            {
+              key: 'accountId',
+              label: 'Account',
+              type: 'select',
+              options: accountOptions,
+              required: true,
+              defaultValue: editing?.account_id || accounts[0]?.id || '',
+            },
           ]}
           initial={editing ? { name: editing.name, accountId: editing.account_id } : undefined}
           onSave={async (v) => {
-            await api.savePaymentMethod(editing?.id || null, { name: v.name, accountId: v.accountId });
+            await api.savePaymentMethod(editing?.id || null, {
+              name: v.name,
+              accountId: v.accountId,
+            });
             await refresh();
             toast(editing ? 'Method updated' : 'Method added');
           }}
@@ -265,7 +403,12 @@ function PayeesTab() {
 
   return (
     <section className="card manager">
-      <SectionHead title="Payees" sub="People and places you transact with." onAdd={() => setCreating(true)} addLabel="＋ Add payee" />
+      <SectionHead
+        title="Payees"
+        sub="People and places you transact with."
+        onAdd={() => setCreating(true)}
+        addLabel="＋ Add payee"
+      />
       {payees.map((p) => (
         <div className="manage-row" key={p.id}>
           <div className="roundicon">◍</div>
@@ -276,7 +419,13 @@ function PayeesTab() {
           <button className="outline" onClick={() => setEditing(p)}>
             Edit
           </button>
-          <DelBtn onDel={async () => { await api.deletePayee(p.id); await refresh(); toast('Payee deleted'); }} />
+          <DelBtn
+            onDel={async () => {
+              await api.deletePayee(p.id);
+              await refresh();
+              toast('Payee deleted');
+            }}
+          />
         </div>
       ))}
       {!payees.length && <Empty text="No payees yet." />}
@@ -284,7 +433,10 @@ function PayeesTab() {
       {(creating || editing) && (
         <FieldsModal
           title={editing ? 'Edit payee' : 'Add payee'}
-          close={() => { setCreating(false); setEditing(null); }}
+          close={() => {
+            setCreating(false);
+            setEditing(null);
+          }}
           fields={[
             { key: 'name', label: 'Name', required: true },
             { key: 'address', label: 'Address', defaultValue: '' },
@@ -309,7 +461,12 @@ function TagsTab() {
 
   return (
     <section className="card manager">
-      <SectionHead title="Tags" sub="Flexible labels to slice your transactions." onAdd={() => setCreating(true)} addLabel="＋ Add tag" />
+      <SectionHead
+        title="Tags"
+        sub="Flexible labels to slice your transactions."
+        onAdd={() => setCreating(true)}
+        addLabel="＋ Add tag"
+      />
       {tags.map((t) => (
         <div className="manage-row" key={t.id}>
           <div className="roundicon">#</div>
@@ -320,7 +477,13 @@ function TagsTab() {
           <button className="outline" onClick={() => setEditing(t)}>
             Edit
           </button>
-          <DelBtn onDel={async () => { await api.deleteTag(t.id); await refresh(); toast('Tag deleted'); }} />
+          <DelBtn
+            onDel={async () => {
+              await api.deleteTag(t.id);
+              await refresh();
+              toast('Tag deleted');
+            }}
+          />
         </div>
       ))}
       {!tags.length && <Empty text="No tags yet." />}
@@ -328,7 +491,10 @@ function TagsTab() {
       {(creating || editing) && (
         <FieldsModal
           title={editing ? 'Edit tag' : 'Add tag'}
-          close={() => { setCreating(false); setEditing(null); }}
+          close={() => {
+            setCreating(false);
+            setEditing(null);
+          }}
           fields={[{ key: 'name', label: 'Tag name', required: true }]}
           initial={editing ? { name: editing.name } : undefined}
           onSave={async (v) => {
@@ -381,10 +547,28 @@ function TrashTab() {
           <h2>Trash</h2>
           <p>Deleted transactions. Restore or delete forever.</p>
         </div>
-        {items.length ? <button className="danger" onClick={async () => { if (confirm('Purge ALL trash? This cannot be undone.')) { await api.purgeTrash(); await reload(); await refresh(); toast('Trash emptied'); } }}>Empty trash</button> : null}
+        {items.length ? (
+          <button
+            className="danger"
+            onClick={async () => {
+              if (confirm('Purge ALL trash? This cannot be undone.')) {
+                await api.purgeTrash();
+                await reload();
+                await refresh();
+                toast('Trash emptied');
+              }
+            }}
+          >
+            Empty trash
+          </button>
+        ) : null}
       </div>
       {items.map((t) => (
-        <TxRow key={t.id} t={t} onClick={() => open({ kind: 'detail', id: t.id, fromTrash: true })} />
+        <TxRow
+          key={t.id}
+          t={t}
+          onClick={() => open({ kind: 'detail', id: t.id, fromTrash: true })}
+        />
       ))}
       {!items.length && <Empty text="Trash is empty." />}
     </section>
@@ -398,7 +582,10 @@ function AuditTab() {
   const [limit, setLimit] = useState(200);
 
   useEffect(() => {
-    api.audit().then(setRows).catch((e) => setErr(e instanceof Error ? e.message : 'Unable to load audit'));
+    api
+      .audit()
+      .then(setRows)
+      .catch((e) => setErr(e instanceof Error ? e.message : 'Unable to load audit'));
   }, []);
 
   return (
@@ -412,13 +599,26 @@ function AuditTab() {
       {err && <Err msg={err} />}
       {rows.slice(0, limit).map((a) => (
         <div className="globalaudit" key={a.id}>
-          <div className="auditbadge">{a.action === 'create' ? '＋' : a.action === 'update' ? '↻' : a.action === 'restore' ? '↺' : '−'}</div>
+          <div className="auditbadge">
+            {a.action === 'create'
+              ? '＋'
+              : a.action === 'update'
+                ? '↻'
+                : a.action === 'restore'
+                  ? '↺'
+                  : '−'}
+          </div>
           <div className="auditcontent">
             <div className="auditheadline">
-              <strong>{a.action.charAt(0).toUpperCase() + a.action.slice(1)} {a.entity_type.replace(/_/g, ' ')}</strong>
+              <strong>
+                {a.action.charAt(0).toUpperCase() + a.action.slice(1)}{' '}
+                {a.entity_type.replace(/_/g, ' ')}
+              </strong>
               <small>{fmtDateTime(a.occurred_at)}</small>
             </div>
-            {a.action === 'update' ? <AuditDiff before={a.before_json} after={a.after_json} /> : null}
+            {a.action === 'update' ? (
+              <AuditDiff before={a.before_json} after={a.after_json} />
+            ) : null}
           </div>
         </div>
       ))}
@@ -436,7 +636,9 @@ function AuditDiff({ before, after }: { before: string | null; after: string | n
   const b = parseJson(before) || {};
   const a = parseJson(after) || {};
   const keys = Array.from(new Set([...Object.keys(b), ...Object.keys(a)])).filter(
-    (k) => !['id', 'created_at', 'updated_at', 'deleted_at', 'sort_order', 'is_active'].includes(k) && JSON.stringify(b[k]) !== JSON.stringify(a[k]),
+    (k) =>
+      !['id', 'created_at', 'updated_at', 'deleted_at', 'sort_order', 'is_active'].includes(k) &&
+      JSON.stringify(b[k]) !== JSON.stringify(a[k])
   );
   if (!keys.length) return <div className="auditcreated">Record updated.</div>;
   return (
@@ -452,5 +654,3 @@ function AuditDiff({ before, after }: { before: string | null; after: string | n
     </div>
   );
 }
-
-

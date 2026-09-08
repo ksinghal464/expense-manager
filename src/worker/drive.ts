@@ -25,15 +25,27 @@ async function signJwt(sa: any): Promise<string> {
     der.buffer,
     { name: 'RSASSA-PKCS1-v1_5', hash: 'SHA-256' },
     false,
-    ['sign'],
+    ['sign']
   );
   const enc = new TextEncoder();
   const header = b64url(enc.encode(JSON.stringify({ alg: 'RS256', typ: 'JWT' })));
   const now = Math.floor(Date.now() / 1000);
   const payload = b64url(
-    enc.encode(JSON.stringify({ iss: sa.client_email, scope: SCOPES.join(' '), aud: TOKEN_URL, iat: now, exp: now + 3600 })),
+    enc.encode(
+      JSON.stringify({
+        iss: sa.client_email,
+        scope: SCOPES.join(' '),
+        aud: TOKEN_URL,
+        iat: now,
+        exp: now + 3600,
+      })
+    )
   );
-  const sig = b64url(new Uint8Array(await crypto.subtle.sign('RSASSA-PKCS1-v1_5', key, enc.encode(header + '.' + payload))));
+  const sig = b64url(
+    new Uint8Array(
+      await crypto.subtle.sign('RSASSA-PKCS1-v1_5', key, enc.encode(header + '.' + payload))
+    )
+  );
   return `${header}.${payload}.${sig}`;
 }
 
@@ -42,7 +54,10 @@ async function getToken(sa: any): Promise<string> {
   const r = await fetch(TOKEN_URL, {
     method: 'POST',
     headers: { 'content-type': 'application/x-www-form-urlencoded' },
-    body: new URLSearchParams({ grant_type: 'urn:ietf:params:oauth:grant-type:jwt-bearer', assertion: jwt }),
+    body: new URLSearchParams({
+      grant_type: 'urn:ietf:params:oauth:grant-type:jwt-bearer',
+      assertion: jwt,
+    }),
   });
   if (!r.ok) throw new HttpError(502, `Drive token exchange failed (${r.status}).`);
   const j = (await r.json()) as { access_token?: string };
@@ -51,9 +66,15 @@ async function getToken(sa: any): Promise<string> {
 }
 
 /** Upload the backup JSON to Google Drive (service account). Creates the file if no id is configured. */
-export async function driveSync(env: Env, backup: unknown): Promise<{ ok: boolean; fileId: string; url?: string }> {
+export async function driveSync(
+  env: Env,
+  backup: unknown
+): Promise<{ ok: boolean; fileId: string; url?: string }> {
   if (!env.GOOGLE_DRIVE_SA_KEY) {
-    throw new HttpError(503, 'Google Drive is not configured (set the GOOGLE_DRIVE_SA_KEY secret).');
+    throw new HttpError(
+      503,
+      'Google Drive is not configured (set the GOOGLE_DRIVE_SA_KEY secret).'
+    );
   }
   let sa: any;
   try {
@@ -66,18 +87,24 @@ export async function driveSync(env: Env, backup: unknown): Promise<{ ok: boolea
   const auth = { authorization: 'Bearer ' + token };
 
   if (env.DRIVE_BACKUP_FILE_ID) {
-    const r = await fetch(`${DRIVE_API}/${env.DRIVE_BACKUP_FILE_ID}?uploadType=media&fields=id,webContentLink`, {
-      method: 'PATCH',
-      headers: { ...auth, 'content-type': 'application/json; charset=utf-8' },
-      body,
-    });
+    const r = await fetch(
+      `${DRIVE_API}/${env.DRIVE_BACKUP_FILE_ID}?uploadType=media&fields=id,webContentLink`,
+      {
+        method: 'PATCH',
+        headers: { ...auth, 'content-type': 'application/json; charset=utf-8' },
+        body,
+      }
+    );
     if (!r.ok) throw new HttpError(502, `Drive upload failed (${r.status}).`);
     const j = (await r.json()) as { id?: string; webContentLink?: string };
     return { ok: true, fileId: j.id || env.DRIVE_BACKUP_FILE_ID, url: j.webContentLink };
   }
 
   const boundary = 'exp_' + Math.random().toString(36).slice(2);
-  const meta = JSON.stringify({ name: 'expense-manager-backup.json', mimeType: 'application/json' });
+  const meta = JSON.stringify({
+    name: 'expense-manager-backup.json',
+    mimeType: 'application/json',
+  });
   const multipart =
     `--${boundary}\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n${meta}\r\n` +
     `--${boundary}\r\nContent-Type: application/json\r\n\r\n${body}\r\n--${boundary}--`;

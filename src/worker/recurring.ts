@@ -28,7 +28,7 @@ interface Generated {
 export async function runRecurring(env: Env): Promise<Generated> {
   const asOf = now();
   const due = await env.DB.prepare(
-    `SELECT * FROM recurring_rules WHERE is_active=1 AND deleted_at IS NULL AND next_due_at <= ? ORDER BY next_due_at`,
+    `SELECT * FROM recurring_rules WHERE is_active=1 AND deleted_at IS NULL AND next_due_at <= ? ORDER BY next_due_at`
   )
     .bind(asOf)
     .all<Row>();
@@ -36,7 +36,7 @@ export async function runRecurring(env: Env): Promise<Generated> {
   const res: Generated = { created: 0, skipped: 0, deactivated: 0 };
   for (const rule of due.results) {
     const generatedCount = await env.DB.prepare(
-      `SELECT COUNT(*) AS n FROM transactions WHERE recurring_rule_id=? AND deleted_at IS NULL`,
+      `SELECT COUNT(*) AS n FROM transactions WHERE recurring_rule_id=? AND deleted_at IS NULL`
     )
       .bind(rule.id)
       .first<{ n: number }>();
@@ -57,7 +57,7 @@ export async function runRecurring(env: Env): Promise<Generated> {
         (id, account_id, payment_method_id, category_id, payee_id, transaction_type, amount_minor,
          occurred_at, description, note, status, parent_transaction_id, recurring_rule_id, transfer_id,
          is_split_parent, created_at, updated_at)
-       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,0,?,?,?)`,
+       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,0,?,?,?)`
     )
       .bind(
         txId,
@@ -75,19 +75,29 @@ export async function runRecurring(env: Env): Promise<Generated> {
         rule.id,
         null,
         asOf,
-        asOf,
+        asOf
       )
       .run();
 
     const next = advanceDue(rule.next_due_at, rule.frequency, rule.interval_value);
-    await env.DB.prepare(`UPDATE recurring_rules SET next_due_at=?, last_generated_at=?, updated_at=? WHERE id=?`)
+    await env.DB.prepare(
+      `UPDATE recurring_rules SET next_due_at=?, last_generated_at=?, updated_at=? WHERE id=?`
+    )
       .bind(next, rule.next_due_at, asOf, rule.id)
       .run();
-    await audit(env, 'transaction', txId, 'create', null, {
-      id: txId,
-      recurring_rule_id: rule.id,
-      occurred_at: rule.next_due_at,
-    }, { recurring: true });
+    await audit(
+      env,
+      'transaction',
+      txId,
+      'create',
+      null,
+      {
+        id: txId,
+        recurring_rule_id: rule.id,
+        occurred_at: rule.next_due_at,
+      },
+      { recurring: true }
+    );
 
     res.created++;
   }

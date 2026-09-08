@@ -19,7 +19,10 @@ export function Activity() {
       setOptions(null);
       return;
     }
-    api.searchOptions(debounced.trim()).then(setOptions).catch(() => setOptions(null));
+    api
+      .searchOptions(debounced.trim())
+      .then(setOptions)
+      .catch(() => setOptions(null));
   }, [debounced]);
 
   const filtered = useMemo(() => {
@@ -28,11 +31,19 @@ export function Activity() {
     if (type !== 'all') list = list.filter((t) => t.transaction_type === type);
     if (!q) return list;
     return list.filter((t) =>
-      [t.description, t.note, t.category_name, t.account_name, t.payment_method_name, t.payee_name, t.reference_number]
+      [
+        t.description,
+        t.note,
+        t.category_name,
+        t.account_name,
+        t.payment_method_name,
+        t.payee_name,
+        t.reference_number,
+      ]
         .filter(Boolean)
         .join(' ')
         .toLowerCase()
-        .includes(q),
+        .includes(q)
     );
   }, [transactions, query, type]);
 
@@ -52,7 +63,12 @@ export function Activity() {
       <div className="searchwrap">
         <div className="search">
           <span>⌕</span>
-          <input autoComplete="off" value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Search anything…" />
+          <input
+            autoComplete="off"
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            placeholder="Search anything…"
+          />
           <button onClick={() => setQuery('')}>×</button>
         </div>
         {options && query.trim() && (
@@ -68,9 +84,11 @@ export function Activity() {
                     </button>
                   ))}
                 </div>
-              ) : null,
+              ) : null
             )}
-            {groups.every(([, v]) => !v.length) && <div className="popupempty">No matching saved values</div>}
+            {groups.every(([, v]) => !v.length) && (
+              <div className="popupempty">No matching saved values</div>
+            )}
           </div>
         )}
       </div>
@@ -78,7 +96,13 @@ export function Activity() {
       <div className="filterline">
         <span>{filtered.length} entries</span>
         <div className="segmented mini">
-          {([['all', 'All'], ['expense', 'Expense'], ['income', 'Income']] as const).map(([id, l]) => (
+          {(
+            [
+              ['all', 'All'],
+              ['expense', 'Expense'],
+              ['income', 'Income'],
+            ] as const
+          ).map(([id, l]) => (
             <button key={id} className={type === id ? 'selected' : ''} onClick={() => setType(id)}>
               {l}
             </button>

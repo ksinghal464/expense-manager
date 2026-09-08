@@ -15,12 +15,29 @@ export function MasterModal({ modal, close }: { modal: NonNullable<Modal>; close
         close={close}
         fields={[
           { key: 'name', label: 'Account name', required: true },
-          { key: 'openingBalance', label: 'Opening balance', type: 'number', defaultValue: item ? toInput(item.opening_balance_minor) : '0' },
+          {
+            key: 'openingBalance',
+            label: 'Opening balance',
+            type: 'number',
+            defaultValue: item ? toInput(item.opening_balance_minor) : '0',
+          },
           { key: 'currency', label: 'Currency', defaultValue: item?.currency || 'INR' },
         ]}
-        initial={item ? { name: item.name, openingBalance: toInput(item.opening_balance_minor), currency: item.currency } : undefined}
+        initial={
+          item
+            ? {
+                name: item.name,
+                openingBalance: toInput(item.opening_balance_minor),
+                currency: item.currency,
+              }
+            : undefined
+        }
         onSave={async (v) => {
-          await api.saveAccount(item?.id || null, { name: v.name, openingBalance: parseFloat(v.openingBalance) || 0, currency: v.currency || 'INR' });
+          await api.saveAccount(item?.id || null, {
+            name: v.name,
+            openingBalance: parseFloat(v.openingBalance) || 0,
+            currency: v.currency || 'INR',
+          });
           await refresh();
           toast(item ? 'Account updated' : 'Account added');
         }}
@@ -30,7 +47,9 @@ export function MasterModal({ modal, close }: { modal: NonNullable<Modal>; close
 
   if (modal.kind === 'category') {
     const item = modal.item;
-    const topOptions = categories.filter((c) => !c.parent_id && c.id !== item?.id).map((c) => ({ value: c.id, label: c.name }));
+    const topOptions = categories
+      .filter((c) => !c.parent_id && c.id !== item?.id)
+      .map((c) => ({ value: c.id, label: c.name }));
     return (
       <FieldsModal
         title={item ? 'Edit category' : 'Add category'}
@@ -56,9 +75,15 @@ export function MasterModal({ modal, close }: { modal: NonNullable<Modal>; close
             defaultValue: '',
           },
         ]}
-        initial={item ? { name: item.name, kind: item.kind, parentId: item.parent_id || '' } : undefined}
+        initial={
+          item ? { name: item.name, kind: item.kind, parentId: item.parent_id || '' } : undefined
+        }
         onSave={async (v) => {
-          await api.saveCategory(item?.id || null, { name: v.name, kind: v.kind as CategoryKind, parentId: v.parentId || null });
+          await api.saveCategory(item?.id || null, {
+            name: v.name,
+            kind: v.kind as CategoryKind,
+            parentId: v.parentId || null,
+          });
           await refresh();
           toast(item ? 'Category updated' : 'Category added');
         }}
@@ -75,7 +100,14 @@ export function MasterModal({ modal, close }: { modal: NonNullable<Modal>; close
         close={close}
         fields={[
           { key: 'name', label: 'Payment method', required: true },
-          { key: 'accountId', label: 'Account', type: 'select', options: accountOptions, required: true, defaultValue: item?.account_id || accounts[0]?.id || '' },
+          {
+            key: 'accountId',
+            label: 'Account',
+            type: 'select',
+            options: accountOptions,
+            required: true,
+            defaultValue: item?.account_id || accounts[0]?.id || '',
+          },
         ]}
         initial={item ? { name: item.name, accountId: item.account_id } : undefined}
         onSave={async (v) => {

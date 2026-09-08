@@ -2,3 +2,5 @@ node_modules
 dist
 .wrangler
 package-lock.json
+# Legacy minified CSS — do not reformat
+src/styles.css

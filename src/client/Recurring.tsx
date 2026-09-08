@@ -50,24 +50,61 @@ export function Recurring() {
                 {r.no_of_payments ? ` · ${r.frequency} × ${r.no_of_payments}` : ` · ${r.frequency}`}
               </strong>
               <span>
-                {fmtDateTime(r.next_due_at)} · {accounts.find((a) => a.id === r.account_id)?.name || ''}
+                {fmtDateTime(r.next_due_at)} ·{' '}
+                {accounts.find((a) => a.id === r.account_id)?.name || ''}
               </span>
             </div>
-            <b className={r.transaction_type === 'income' ? 'positive' : ''}>{money(r.amount_minor)}</b>
+            <b className={r.transaction_type === 'income' ? 'positive' : ''}>
+              {money(r.amount_minor)}
+            </b>
             <div className="recurringactions">
-              <button className="chip" title="Generate next now" onClick={async () => { setErr(''); try { await api.generateRecurring(r.id); await after('Generated'); } catch (e) { setErr(e instanceof Error ? e.message : ''); } }}>
+              <button
+                className="chip"
+                title="Generate next now"
+                onClick={async () => {
+                  setErr('');
+                  try {
+                    await api.generateRecurring(r.id);
+                    await after('Generated');
+                  } catch (e) {
+                    setErr(e instanceof Error ? e.message : '');
+                  }
+                }}
+              >
                 ▶
               </button>
-              <button className="chip" title="Skip to next due" onClick={async () => { await api.skipRecurring(r.id); await after('Skipped'); }}>
+              <button
+                className="chip"
+                title="Skip to next due"
+                onClick={async () => {
+                  await api.skipRecurring(r.id);
+                  await after('Skipped');
+                }}
+              >
                 ⏭
               </button>
-              <button className="chip" title={r.is_active ? 'Pause' : 'Resume'} onClick={async () => { await api.toggleRecurring(r.id); await after(r.is_active ? 'Paused' : 'Resumed'); }}>
+              <button
+                className="chip"
+                title={r.is_active ? 'Pause' : 'Resume'}
+                onClick={async () => {
+                  await api.toggleRecurring(r.id);
+                  await after(r.is_active ? 'Paused' : 'Resumed');
+                }}
+              >
                 {r.is_active ? '⏸' : '▶'}
               </button>
               <button className="chip" onClick={() => setEditing(r)}>
                 ✎
               </button>
-              <button className="chip danger" onClick={async () => { if (confirm('Delete this rule?')) { await api.deleteRecurring(r.id); await after('Deleted'); } }}>
+              <button
+                className="chip danger"
+                onClick={async () => {
+                  if (confirm('Delete this rule?')) {
+                    await api.deleteRecurring(r.id);
+                    await after('Deleted');
+                  }
+                }}
+              >
                 ×
               </button>
             </div>
@@ -119,7 +156,9 @@ function RuleForm({
   const [amount, setAmount] = useState(rule ? toInput(rule.amount_minor) : '');
   const [frequency, setFrequency] = useState<Freq>(rule?.frequency || 'monthly');
   const [interval, setInterval] = useState(String(rule?.interval_value || 1));
-  const [noOfPayments, setNoOfPayments] = useState(rule?.no_of_payments ? String(rule.no_of_payments) : '');
+  const [noOfPayments, setNoOfPayments] = useState(
+    rule?.no_of_payments ? String(rule.no_of_payments) : ''
+  );
   const [nextDueAt, setNextDueAt] = useState(rule ? toInputLocal(rule.next_due_at) : dtLocalNow());
   const [description, setDescription] = useState(rule?.description || '');
   const [note, setNote] = useState(rule?.note || '');
@@ -168,9 +207,21 @@ function RuleForm({
         {err && <Err msg={err} />}
         <form onSubmit={submit}>
           <Field label="Name">
-            <input required value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g. Electricity bill" />
+            <input
+              required
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              placeholder="e.g. Electricity bill"
+            />
           </Field>
-          <Segmented value={type} onChange={setType} options={[['expense', 'Expense'], ['income', 'Income']]} />
+          <Segmented
+            value={type}
+            onChange={setType}
+            options={[
+              ['expense', 'Expense'],
+              ['income', 'Income'],
+            ]}
+          />
           <div className="formgrid">
             <Field label="Account">
               <select value={accountId} onChange={(e) => setAccountId(e.target.value)}>
@@ -204,7 +255,13 @@ function RuleForm({
             </Field>
             <Field label="Amount">
               <div className="inprefix">
-                ₹<input required inputMode="decimal" value={amount} onChange={(e) => setAmount(e.target.value)} />
+                ₹
+                <input
+                  required
+                  inputMode="decimal"
+                  value={amount}
+                  onChange={(e) => setAmount(e.target.value)}
+                />
               </div>
             </Field>
             <Field label="Frequency">
@@ -216,13 +273,25 @@ function RuleForm({
               </select>
             </Field>
             <Field label="Every">
-              <input inputMode="numeric" value={interval} onChange={(e) => setInterval(e.target.value)} />
+              <input
+                inputMode="numeric"
+                value={interval}
+                onChange={(e) => setInterval(e.target.value)}
+              />
             </Field>
             <Field label="Payments (blank = forever)">
-              <input inputMode="numeric" value={noOfPayments} onChange={(e) => setNoOfPayments(e.target.value)} />
+              <input
+                inputMode="numeric"
+                value={noOfPayments}
+                onChange={(e) => setNoOfPayments(e.target.value)}
+              />
             </Field>
             <Field label="First due">
-              <input type="datetime-local" value={nextDueAt} onChange={(e) => setNextDueAt(e.target.value)} />
+              <input
+                type="datetime-local"
+                value={nextDueAt}
+                onChange={(e) => setNextDueAt(e.target.value)}
+              />
             </Field>
           </div>
           <Field label="Description">

@@ -17,9 +17,14 @@ function kindForTop(name: string): 'expense' | 'income' | 'both' {
  * Import a legacy CSV. "replace" hard-clears existing data first; "append"
  * reuses existing master data and only adds new transactions.
  */
-export async function importCsv(env: Env, text: string, mode: 'append' | 'replace' = 'append'): Promise<ImportSummary> {
+export async function importCsv(
+  env: Env,
+  text: string,
+  mode: 'append' | 'replace' = 'append'
+): Promise<ImportSummary> {
   const { rows, errors } = parseImportCsv(text);
-  if (rows.length === 0) throw new HttpError(400, errors[0]?.message || 'No data rows found in CSV.');
+  if (rows.length === 0)
+    throw new HttpError(400, errors[0]?.message || 'No data rows found in CSV.');
 
   if (mode === 'replace') {
     await env.DB.batch([
@@ -40,7 +45,14 @@ export async function importCsv(env: Env, text: string, mode: 'append' | 'replac
   }
 
   const at = now();
-  const summary: ImportSummary = { inserted: 0, accounts: 0, categories: 0, payees: 0, methods: 0, errors: [] };
+  const summary: ImportSummary = {
+    inserted: 0,
+    accounts: 0,
+    categories: 0,
+    payees: 0,
+    methods: 0,
+    errors: [],
+  };
   const norm = normalizeRows(rows);
 
   // ---- cached master upserts ----
@@ -55,14 +67,19 @@ export async function importCsv(env: Env, text: string, mode: 'append' | 'replac
     const key = name.trim().toLowerCase();
     if (!key) return null;
     if (acc.has(key)) return acc.get(key)!;
-    let r = await env.DB.prepare('SELECT id FROM accounts WHERE lower(name)=? AND deleted_at IS NULL LIMIT 1')
-      .bind(key).first<Row>();
+    let r = await env.DB.prepare(
+      'SELECT id FROM accounts WHERE lower(name)=? AND deleted_at IS NULL LIMIT 1'
+    )
+      .bind(key)
+      .first<Row>();
     if (!r) {
       const newId = id();
       await env.DB.prepare(
         `INSERT INTO accounts (id,name,currency,opening_balance_minor,opening_balance_at,is_active,created_at,updated_at)
-         VALUES (?,?,?,0,?,1,?,?)`,
-      ).bind(newId, name.trim(), 'INR', at, at, at).run();
+         VALUES (?,?,?,0,?,1,?,?)`
+      )
+        .bind(newId, name.trim(), 'INR', at, at, at)
+        .run();
       summary.accounts++;
       r = { id: newId };
     }
@@ -75,13 +92,18 @@ export async function importCsv(env: Env, text: string, mode: 'append' | 'replac
     if (!n || !accountId) return null;
     const key = accountId + '|' + n.toLowerCase();
     if (pm.has(key)) return pm.get(key)!;
-    let r = await env.DB.prepare('SELECT id FROM payment_methods WHERE account_id=? AND lower(name)=? AND deleted_at IS NULL LIMIT 1')
-      .bind(accountId, n.toLowerCase()).first<Row>();
+    let r = await env.DB.prepare(
+      'SELECT id FROM payment_methods WHERE account_id=? AND lower(name)=? AND deleted_at IS NULL LIMIT 1'
+    )
+      .bind(accountId, n.toLowerCase())
+      .first<Row>();
     if (!r) {
       const newId = id();
       await env.DB.prepare(
-        `INSERT INTO payment_methods (id,account_id,name,is_active,created_at,updated_at) VALUES (?,?,?,?,1,?)`,
-      ).bind(newId, accountId, n, at, at).run();
+        `INSERT INTO payment_methods (id,account_id,name,is_active,created_at,updated_at) VALUES (?,?,?,?,1,?)`
+      )
+        .bind(newId, accountId, n, at, at)
+        .run();
       summary.methods++;
       r = { id: newId };
     }
@@ -93,14 +115,19 @@ export async function importCsv(env: Env, text: string, mode: 'append' | 'replac
     const top = (topName || 'Uncategorized').trim();
     const topKey = top.toLowerCase();
     if (!catTop.has(topKey)) {
-      let r = await env.DB.prepare('SELECT id FROM categories WHERE parent_id IS NULL AND lower(name)=? AND deleted_at IS NULL LIMIT 1')
-        .bind(topKey).first<Row>();
+      let r = await env.DB.prepare(
+        'SELECT id FROM categories WHERE parent_id IS NULL AND lower(name)=? AND deleted_at IS NULL LIMIT 1'
+      )
+        .bind(topKey)
+        .first<Row>();
       if (!r) {
         const newId = id();
         await env.DB.prepare(
           `INSERT INTO categories (id,name,parent_id,kind,sort_order,is_active,created_at,updated_at)
-           VALUES (?,?,NULL,?,0,1,?,?)`,
-        ).bind(newId, top, kindForTop(top), at, at).run();
+           VALUES (?,?,NULL,?,0,1,?,?)`
+        )
+          .bind(newId, top, kindForTop(top), at, at)
+          .run();
         summary.categories++;
         r = { id: newId };
       }
@@ -111,14 +138,19 @@ export async function importCsv(env: Env, text: string, mode: 'append' | 'replac
     if (!sub) return topId;
     const subKey = topKey + '|' + sub.toLowerCase();
     if (catSub.has(subKey)) return catSub.get(subKey)!;
-    let r = await env.DB.prepare('SELECT id FROM categories WHERE parent_id=? AND lower(name)=? AND deleted_at IS NULL LIMIT 1')
-      .bind(topId, sub.toLowerCase()).first<Row>();
+    let r = await env.DB.prepare(
+      'SELECT id FROM categories WHERE parent_id=? AND lower(name)=? AND deleted_at IS NULL LIMIT 1'
+    )
+      .bind(topId, sub.toLowerCase())
+      .first<Row>();
     if (!r) {
       const newId = id();
       await env.DB.prepare(
         `INSERT INTO categories (id,name,parent_id,kind,sort_order,is_active,created_at,updated_at)
-         VALUES (?,?,?,?,0,1,?,?)`,
-      ).bind(newId, sub, topId, catTopKind(top), at, at).run();
+         VALUES (?,?,?,?,0,1,?,?)`
+      )
+        .bind(newId, sub, topId, catTopKind(top), at, at)
+        .run();
       summary.categories++;
       r = { id: newId };
     }
@@ -132,12 +164,18 @@ export async function importCsv(env: Env, text: string, mode: 'append' | 'replac
     if (!n) return null;
     const key = n.toLowerCase();
     if (pay.has(key)) return pay.get(key)!;
-    let r = await env.DB.prepare('SELECT id FROM payees WHERE lower(name)=? AND deleted_at IS NULL LIMIT 1')
-      .bind(key).first<Row>();
+    let r = await env.DB.prepare(
+      'SELECT id FROM payees WHERE lower(name)=? AND deleted_at IS NULL LIMIT 1'
+    )
+      .bind(key)
+      .first<Row>();
     if (!r) {
       const newId = id();
-      await env.DB.prepare(`INSERT INTO payees (id,name,address,is_active,created_at,updated_at) VALUES (?,?,?,1,?,?)`)
-        .bind(newId, n, '', at, at).run();
+      await env.DB.prepare(
+        `INSERT INTO payees (id,name,address,is_active,created_at,updated_at) VALUES (?,?,?,1,?,?)`
+      )
+        .bind(newId, n, '', at, at)
+        .run();
       summary.payees++;
       r = { id: newId };
     }
@@ -150,11 +188,16 @@ export async function importCsv(env: Env, text: string, mode: 'append' | 'replac
     if (!n) return null;
     const key = n.toLowerCase();
     if (tag.has(key)) return tag.get(key)!;
-    let r = await env.DB.prepare('SELECT id FROM tags WHERE lower(name)=? AND deleted_at IS NULL LIMIT 1')
-      .bind(key).first<Row>();
+    let r = await env.DB.prepare(
+      'SELECT id FROM tags WHERE lower(name)=? AND deleted_at IS NULL LIMIT 1'
+    )
+      .bind(key)
+      .first<Row>();
     if (!r) {
       const newId = id();
-      await env.DB.prepare(`INSERT INTO tags (id,name,created_at,updated_at) VALUES (?,?,?,?)`).bind(newId, n, at, at).run();
+      await env.DB.prepare(`INSERT INTO tags (id,name,created_at,updated_at) VALUES (?,?,?,?)`)
+        .bind(newId, n, at, at)
+        .run();
       r = { id: newId };
     }
     tag.set(key, r.id);
@@ -237,7 +280,16 @@ export async function importCsv(env: Env, text: string, mode: 'append' | 'replac
         amount: r.amount_minor,
         description: r.description,
       }));
-      txs.push({ id: id(), ctx, row: first, amountMinor: total, type: 'expense', refundsTxId: null, isSplitParent: 1, splits });
+      txs.push({
+        id: id(),
+        ctx,
+        row: first,
+        amountMinor: total,
+        type: 'expense',
+        refundsTxId: null,
+        isSplitParent: 1,
+        splits,
+      });
     } else {
       for (const p of positives) txs.push(mk(p));
     }
@@ -259,7 +311,7 @@ export async function importCsv(env: Env, text: string, mode: 'append' | 'replac
            (id,account_id,payment_method_id,category_id,payee_id,transaction_type,amount_minor,occurred_at,
             description,note,status,reference_number,tax_minor,quantity,unit,refunds_transaction_id,
             parent_transaction_id,recurring_rule_id,is_split_parent,created_at,updated_at)
-         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,0,?,?)`,
+         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,0,?,?)`
       ).bind(
         txId,
         t.ctx.accountId,
@@ -281,17 +333,22 @@ export async function importCsv(env: Env, text: string, mode: 'append' | 'replac
         null,
         t.isSplitParent,
         at,
-        at,
-      ),
+        at
+      )
     );
-    for (const tid of t.ctx.tagIds) tagStmts.push(env.DB.prepare('INSERT OR IGNORE INTO transaction_tags (transaction_id,tag_id) VALUES (?,?)').bind(txId, tid));
+    for (const tid of t.ctx.tagIds)
+      tagStmts.push(
+        env.DB.prepare(
+          'INSERT OR IGNORE INTO transaction_tags (transaction_id,tag_id) VALUES (?,?)'
+        ).bind(txId, tid)
+      );
     if (t.splits) {
       for (const s of t.splits) {
         splitStmts.push(
           env.DB.prepare(
             `INSERT INTO transaction_splits (id,transaction_id,category_id,amount_minor,description,note,created_at,updated_at)
-             VALUES (?,?,?,?,?,?,?,?)`,
-          ).bind(s.id, txId, s.categoryId, s.amount, s.description, '', at, at),
+             VALUES (?,?,?,?,?,?,?,?)`
+          ).bind(s.id, txId, s.categoryId, s.amount, s.description, '', at, at)
         );
       }
     }
@@ -302,7 +359,15 @@ export async function importCsv(env: Env, text: string, mode: 'append' | 'replac
   if (tagStmts.length) await runBatches(env, tagStmts);
 
   summary.inserted = txs.length;
-  await audit(env, 'import', 'csv', 'create', null, { mode, rows: norm.length, inserted: txs.length }, { mode, errors });
+  await audit(
+    env,
+    'import',
+    'csv',
+    'create',
+    null,
+    { mode, rows: norm.length, inserted: txs.length },
+    { mode, errors }
+  );
   return summary;
 }
 
@@ -312,7 +377,10 @@ function toMinorSafe(v: string): number {
 }
 
 /** Export transactions as a clean, re-importable CSV. */
-export async function exportCsv(env: Env, opts: { type?: string; from?: string; to?: string } = {}): Promise<string> {
+export async function exportCsv(
+  env: Env,
+  opts: { type?: string; from?: string; to?: string } = {}
+): Promise<string> {
   const clauses = ['t.deleted_at IS NULL'];
   const params: unknown[] = [];
   if (opts.type === 'income' || opts.type === 'expense') {
@@ -339,14 +407,27 @@ export async function exportCsv(env: Env, opts: { type?: string; from?: string; 
      LEFT JOIN payees p ON p.id=t.payee_id
      LEFT JOIN payment_methods pm ON pm.id=t.payment_method_id
      WHERE ${clauses.join(' AND ')}
-     ORDER BY t.occurred_at DESC, t.created_at DESC`,
+     ORDER BY t.occurred_at DESC, t.created_at DESC`
   )
     .bind(...params)
     .all<Row>();
 
   const header = [
-    'Date', 'Amount', 'Category', 'Subcategory', 'Payment Method', 'Description',
-    'Ref/Check No', 'Payee/Payer', 'Status', 'Account', 'Tag', 'Tax', 'Quantity', 'Unit', 'Type',
+    'Date',
+    'Amount',
+    'Category',
+    'Subcategory',
+    'Payment Method',
+    'Description',
+    'Ref/Check No',
+    'Payee/Payer',
+    'Status',
+    'Account',
+    'Tag',
+    'Tax',
+    'Quantity',
+    'Unit',
+    'Type',
   ];
   const lines = [header.join(',')];
   for (const r of rows.results) {
@@ -371,7 +452,9 @@ export async function exportCsv(env: Env, opts: { type?: string; from?: string; 
       r.quantity ?? '',
       r.unit || '',
       r.transaction_type,
-    ].map(csvEscape).join(',');
+    ]
+      .map(csvEscape)
+      .join(',');
     lines.push(line);
   }
   return lines.join('\n');
@@ -379,46 +462,193 @@ export async function exportCsv(env: Env, opts: { type?: string; from?: string; 
 
 /** Full JSON backup/restore payload (non-deleted rows only). */
 export async function exportJson(env: Env) {
-  const q = (sql: string) => env.DB.prepare(sql).all<Row>().then((r) => r.results);
-  const [accounts, categories, paymentMethods, payees, tags, transactions, splits, notes, recurring, transactionTags, attachments] =
-    await Promise.all([
-      q('SELECT * FROM accounts WHERE deleted_at IS NULL'),
-      q('SELECT * FROM categories WHERE deleted_at IS NULL'),
-      q('SELECT * FROM payment_methods WHERE deleted_at IS NULL'),
-      q('SELECT * FROM payees WHERE deleted_at IS NULL'),
-      q('SELECT * FROM tags WHERE deleted_at IS NULL'),
-      q('SELECT * FROM transactions WHERE deleted_at IS NULL'),
-      q('SELECT * FROM transaction_splits WHERE deleted_at IS NULL'),
-      q('SELECT * FROM notes WHERE deleted_at IS NULL'),
-      q('SELECT * FROM recurring_rules WHERE deleted_at IS NULL'),
-      q('SELECT transaction_id, tag_id FROM transaction_tags'),
-      q('SELECT * FROM attachments WHERE deleted_at IS NULL'),
-    ]);
+  const q = (sql: string) =>
+    env.DB.prepare(sql)
+      .all<Row>()
+      .then((r) => r.results);
+  const [
+    accounts,
+    categories,
+    paymentMethods,
+    payees,
+    tags,
+    transactions,
+    splits,
+    notes,
+    recurring,
+    transactionTags,
+    attachments,
+  ] = await Promise.all([
+    q('SELECT * FROM accounts WHERE deleted_at IS NULL'),
+    q('SELECT * FROM categories WHERE deleted_at IS NULL'),
+    q('SELECT * FROM payment_methods WHERE deleted_at IS NULL'),
+    q('SELECT * FROM payees WHERE deleted_at IS NULL'),
+    q('SELECT * FROM tags WHERE deleted_at IS NULL'),
+    q('SELECT * FROM transactions WHERE deleted_at IS NULL'),
+    q('SELECT * FROM transaction_splits WHERE deleted_at IS NULL'),
+    q('SELECT * FROM notes WHERE deleted_at IS NULL'),
+    q('SELECT * FROM recurring_rules WHERE deleted_at IS NULL'),
+    q('SELECT transaction_id, tag_id FROM transaction_tags'),
+    q('SELECT * FROM attachments WHERE deleted_at IS NULL'),
+  ]);
   return {
     schema: 'expense-manager/1',
     exportedAt: now(),
-    data: { accounts, categories, paymentMethods, payees, tags, transactions, splits, notes, recurring, transactionTags, attachments },
+    data: {
+      accounts,
+      categories,
+      paymentMethods,
+      payees,
+      tags,
+      transactions,
+      splits,
+      notes,
+      recurring,
+      transactionTags,
+      attachments,
+    },
   };
 }
 
 const RESTORE_ORDER: [string, string[]][] = [
-  ['accounts', ['id', 'name', 'currency', 'opening_balance_minor', 'opening_balance_at', 'is_active', 'created_at', 'updated_at', 'deleted_at']],
-  ['categories', ['id', 'name', 'parent_id', 'kind', 'sort_order', 'is_active', 'created_at', 'updated_at', 'deleted_at']],
-  ['payment_methods', ['id', 'account_id', 'name', 'is_active', 'created_at', 'updated_at', 'deleted_at']],
+  [
+    'accounts',
+    [
+      'id',
+      'name',
+      'currency',
+      'opening_balance_minor',
+      'opening_balance_at',
+      'is_active',
+      'created_at',
+      'updated_at',
+      'deleted_at',
+    ],
+  ],
+  [
+    'categories',
+    [
+      'id',
+      'name',
+      'parent_id',
+      'kind',
+      'sort_order',
+      'is_active',
+      'created_at',
+      'updated_at',
+      'deleted_at',
+    ],
+  ],
+  [
+    'payment_methods',
+    ['id', 'account_id', 'name', 'is_active', 'created_at', 'updated_at', 'deleted_at'],
+  ],
   ['payees', ['id', 'name', 'address', 'is_active', 'created_at', 'updated_at', 'deleted_at']],
   ['tags', ['id', 'name', 'created_at', 'updated_at', 'deleted_at']],
-  ['recurring_rules', ['id', 'name', 'transaction_type', 'account_id', 'payment_method_id', 'category_id', 'payee_id', 'amount_minor', 'description', 'note', 'frequency', 'interval_value', 'no_of_payments', 'next_due_at', 'is_active', 'last_generated_at', 'created_at', 'updated_at', 'deleted_at']],
-  ['transactions', ['id', 'account_id', 'payment_method_id', 'category_id', 'payee_id', 'transaction_type', 'amount_minor', 'occurred_at', 'description', 'note', 'status', 'reference_number', 'tax_minor', 'quantity', 'unit', 'refunds_transaction_id', 'parent_transaction_id', 'recurring_rule_id', 'is_split_parent', 'created_at', 'updated_at', 'deleted_at']],
-  ['transaction_splits', ['id', 'transaction_id', 'category_id', 'amount_minor', 'description', 'note', 'created_at', 'updated_at', 'deleted_at']],
+  [
+    'recurring_rules',
+    [
+      'id',
+      'name',
+      'transaction_type',
+      'account_id',
+      'payment_method_id',
+      'category_id',
+      'payee_id',
+      'amount_minor',
+      'description',
+      'note',
+      'frequency',
+      'interval_value',
+      'no_of_payments',
+      'next_due_at',
+      'is_active',
+      'last_generated_at',
+      'created_at',
+      'updated_at',
+      'deleted_at',
+    ],
+  ],
+  [
+    'transactions',
+    [
+      'id',
+      'account_id',
+      'payment_method_id',
+      'category_id',
+      'payee_id',
+      'transaction_type',
+      'amount_minor',
+      'occurred_at',
+      'description',
+      'note',
+      'status',
+      'reference_number',
+      'tax_minor',
+      'quantity',
+      'unit',
+      'refunds_transaction_id',
+      'parent_transaction_id',
+      'recurring_rule_id',
+      'is_split_parent',
+      'created_at',
+      'updated_at',
+      'deleted_at',
+    ],
+  ],
+  [
+    'transaction_splits',
+    [
+      'id',
+      'transaction_id',
+      'category_id',
+      'amount_minor',
+      'description',
+      'note',
+      'created_at',
+      'updated_at',
+      'deleted_at',
+    ],
+  ],
   ['transaction_tags', ['transaction_id', 'tag_id']],
-  ['notes', ['id', 'transaction_id', 'title', 'content', 'reminder_at', 'is_done', 'created_at', 'updated_at', 'deleted_at']],
-  ['attachments', ['id', 'transaction_id', 'provider', 'external_file_id', 'file_name', 'mime_type', 'size_bytes', 'created_at', 'updated_at', 'deleted_at']],
+  [
+    'notes',
+    [
+      'id',
+      'transaction_id',
+      'title',
+      'content',
+      'reminder_at',
+      'is_done',
+      'created_at',
+      'updated_at',
+      'deleted_at',
+    ],
+  ],
+  [
+    'attachments',
+    [
+      'id',
+      'transaction_id',
+      'provider',
+      'external_file_id',
+      'file_name',
+      'mime_type',
+      'size_bytes',
+      'created_at',
+      'updated_at',
+      'deleted_at',
+    ],
+  ],
 ];
 
 /** Full replace-restore from a backup JSON (must match schema "expense-manager/1"). */
 export async function restoreBackup(env: Env, backup: any): Promise<{ restored: number }> {
   if (!backup || backup.schema !== 'expense-manager/1' || !backup.data) {
-    throw new HttpError(400, 'Invalid backup: expected schema "expense-manager/1" with a data payload.');
+    throw new HttpError(
+      400,
+      'Invalid backup: expected schema "expense-manager/1" with a data payload.'
+    );
   }
   const data = backup.data;
   // clear everything (child tables first)
@@ -430,7 +660,11 @@ export async function restoreBackup(env: Env, backup: any): Promise<{ restored: 
     for (const row of rows) {
       const present = cols.filter((c) => row[c] !== undefined);
       const vals = present.map((c) => row[c] ?? null);
-      stmts.push(env.DB.prepare(`INSERT OR REPLACE INTO ${table} (${present.join(',')}) VALUES (${present.map(() => '?').join(',')})`).bind(...vals));
+      stmts.push(
+        env.DB.prepare(
+          `INSERT OR REPLACE INTO ${table} (${present.join(',')}) VALUES (${present.map(() => '?').join(',')})`
+        ).bind(...vals)
+      );
       restored++;
     }
     if (stmts.length) await runBatches(env, stmts);

@@ -27,7 +27,7 @@
 }
 .appbar h1 {
   font-size: 22px;
-  letter-spacing: -.02em;
+  letter-spacing: -0.02em;
 }
 .appbar p {
   font-size: 13px;
@@ -169,7 +169,7 @@ input[type='file'] {
 }
 .chip i {
   font-style: normal;
-  opacity: .6;
+  opacity: 0.6;
 }
 .chip.ghost {
   background: #fff;
@@ -180,7 +180,7 @@ input[type='file'] {
   background: #fff6f7;
 }
 .chip:hover {
-  filter: brightness(.97);
+  filter: brightness(0.97);
 }
 
 /* --- tags (tx form) --- */
@@ -330,7 +330,7 @@ input[type='file'] {
 .mini h4 {
   margin: 0;
   font-size: 12px;
-  letter-spacing: .03em;
+  letter-spacing: 0.03em;
   color: #56667a;
   text-transform: uppercase;
 }

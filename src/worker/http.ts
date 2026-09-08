@@ -7,7 +7,10 @@ export interface Env {
 
 /** Raised for expected client/server errors; message is safe to return. */
 export class HttpError extends Error {
-  constructor(public status: number, message: string) {
+  constructor(
+    public status: number,
+    message: string
+  ) {
     super(message);
   }
 }
@@ -34,12 +37,16 @@ export async function readBody(request: Request, maxBytes = 2_000_000): Promise<
 }
 
 /** Read a JSON object body, enforcing a byte cap. Empty body -> {}. */
-export async function readJson(request: Request, maxBytes = 2_000_000): Promise<Record<string, unknown>> {
+export async function readJson(
+  request: Request,
+  maxBytes = 2_000_000
+): Promise<Record<string, unknown>> {
   const text = await readBody(request, maxBytes);
   if (!text.trim()) return {};
   try {
     const parsed = JSON.parse(text);
-    if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) return parsed as Record<string, unknown>;
+    if (parsed && typeof parsed === 'object' && !Array.isArray(parsed))
+      return parsed as Record<string, unknown>;
     throw new Error('not an object');
   } catch {
     throw new HttpError(400, 'Body must be a JSON object');

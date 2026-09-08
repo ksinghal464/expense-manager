@@ -26,8 +26,11 @@ export function Notes() {
     await refresh();
   };
 
-  const shown = notes.filter((n) => (filter === 'all' ? true : filter === 'done' ? n.is_done : !n.is_done));
-  const txName = (id: string | null) => (id ? transactions.find((t: TxView) => t.id === id)?.description || 'Linked' : '');
+  const shown = notes.filter((n) =>
+    filter === 'all' ? true : filter === 'done' ? n.is_done : !n.is_done
+  );
+  const txName = (id: string | null) =>
+    id ? transactions.find((t: TxView) => t.id === id)?.description || 'Linked' : '';
 
   return (
     <main>
@@ -43,17 +46,30 @@ export function Notes() {
 
       {err && <Err msg={err} />}
       <div className="filterline">
-        <Segmented value={filter} onChange={setFilter} options={[['open', 'Open'], ['done', 'Done'], ['all', 'All']]} />
+        <Segmented
+          value={filter}
+          onChange={setFilter}
+          options={[
+            ['open', 'Open'],
+            ['done', 'Done'],
+            ['all', 'All'],
+          ]}
+        />
       </div>
 
       <section className="card">
         {shown.map((n) => (
           <div className="noterow" key={n.id}>
-            <button className="notedone" onClick={() => api.saveNote(n.id, { isDone: !n.is_done }).then(() => after(''))}>
+            <button
+              className="notedone"
+              onClick={() => api.saveNote(n.id, { isDone: !n.is_done }).then(() => after(''))}
+            >
               {n.is_done ? '✓' : '○'}
             </button>
             <div className="notemain">
-              <strong className={n.is_done ? 'strikethrough' : ''}>{n.title || '(untitled)'}</strong>
+              <strong className={n.is_done ? 'strikethrough' : ''}>
+                {n.title || '(untitled)'}
+              </strong>
               {n.content ? <p className={n.is_done ? 'strikethrough' : ''}>{n.content}</p> : null}
               <small>
                 {n.reminder_at ? `⏰ ${fmtDateTime(n.reminder_at)}` : fmtDateTime(n.created_at)}
@@ -64,13 +80,23 @@ export function Notes() {
               <button className="chip" onClick={() => setEditing(n)}>
                 ✎
               </button>
-              <button className="chip danger" onClick={async () => { if (confirm('Delete this note?')) { await api.deleteNote(n.id); await after('Deleted'); } }}>
+              <button
+                className="chip danger"
+                onClick={async () => {
+                  if (confirm('Delete this note?')) {
+                    await api.deleteNote(n.id);
+                    await after('Deleted');
+                  }
+                }}
+              >
                 ×
               </button>
             </div>
           </div>
         ))}
-        {!shown.length && <Empty text={filter === 'done' ? 'No completed notes.' : 'No notes yet.'} />}
+        {!shown.length && (
+          <Empty text={filter === 'done' ? 'No completed notes.' : 'No notes yet.'} />
+        )}
       </section>
 
       {(creating || editing) && (
@@ -91,7 +117,17 @@ export function Notes() {
   );
 }
 
-function NoteForm({ note, transactions, close, saved }: { note?: Note; transactions: TxView[]; close: () => void; saved: () => void }) {
+function NoteForm({
+  note,
+  transactions,
+  close,
+  saved,
+}: {
+  note?: Note;
+  transactions: TxView[];
+  close: () => void;
+  saved: () => void;
+}) {
   const [title, setTitle] = useState(note?.title || '');
   const [content, setContent] = useState(note?.content || '');
   const [rem, setRem] = useState(note?.reminder_at ? toLocalInput(note.reminder_at) : '');

@@ -19,7 +19,12 @@ function istDate(iso: string): Date {
 
 export function fmtDate(iso: string): string {
   const d = istDate(iso);
-  return d.toLocaleDateString('en-IN', { timeZone: 'UTC', day: 'numeric', month: 'short', year: 'numeric' });
+  return d.toLocaleDateString('en-IN', {
+    timeZone: 'UTC',
+    day: 'numeric',
+    month: 'short',
+    year: 'numeric',
+  });
 }
 
 export function fmtDateTime(iso: string): string {
@@ -57,7 +62,7 @@ export function toIso(input: string): string {
 
 /** Convert a minor amount to a string suitable for an input. */
 export const toInput = (minor: number): string =>
-  minor ? String(Math.round(minor / 100 * 100) / 100) : '';
+  minor ? String(Math.round((minor / 100) * 100) / 100) : '';
 
 /** Parse an input string to minor units, or null. */
 export const parse = parseAmount;

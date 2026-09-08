@@ -27,7 +27,9 @@ export function Dashboard() {
         </div>
         <div>
           <small>YTD · NET</small>
-          <b className={(dash?.ytd?.income || 0) - (dash?.ytd?.expense || 0) >= 0 ? 'positive' : ''}>
+          <b
+            className={(dash?.ytd?.income || 0) - (dash?.ytd?.expense || 0) >= 0 ? 'positive' : ''}
+          >
             {money((dash?.ytd?.income || 0) - (dash?.ytd?.expense || 0))}
           </b>
         </div>

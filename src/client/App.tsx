@@ -56,7 +56,12 @@ function Shell() {
       )}
 
       {!error && !loading && accounts.length > 0 && (
-        <button className="fab" onClick={() => open({ kind: 'tx' })} title="Add transaction" aria-label="Add transaction">
+        <button
+          className="fab"
+          onClick={() => open({ kind: 'tx' })}
+          title="Add transaction"
+          aria-label="Add transaction"
+        >
           ＋
         </button>
       )}

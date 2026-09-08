@@ -1,8 +1,14 @@
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
 import { api } from './api';
 import type {
-  Account, Category, PaymentMethod, Payee, Tag,
-  Bootstrap, Dashboard, TxView,
+  Account,
+  Category,
+  PaymentMethod,
+  Payee,
+  Tag,
+  Bootstrap,
+  Dashboard,
+  TxView,
 } from '../shared/types';
 
 export type Page = 'dashboard' | 'activity' | 'recurring' | 'notes' | 'manage';
@@ -49,7 +55,15 @@ export function useStore(): Store {
   return s;
 }
 
-const EMPTY: Bootstrap = { accounts: [], categories: [], paymentMethods: [], payees: [], tags: [], suggestions: [], recurring: [] };
+const EMPTY: Bootstrap = {
+  accounts: [],
+  categories: [],
+  paymentMethods: [],
+  payees: [],
+  tags: [],
+  suggestions: [],
+  recurring: [],
+};
 
 export function StoreProvider({ children }: { children: React.ReactNode }) {
   const [loading, setLoading] = useState(true);
@@ -121,7 +135,23 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       toast,
       notify,
     }),
-    [loading, error, accounts, categories, methods, payees, tags, suggestions, transactions, dash, page, modal, refresh, toast, notify],
+    [
+      loading,
+      error,
+      accounts,
+      categories,
+      methods,
+      payees,
+      tags,
+      suggestions,
+      transactions,
+      dash,
+      page,
+      modal,
+      refresh,
+      toast,
+      notify,
+    ]
   );
 
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;

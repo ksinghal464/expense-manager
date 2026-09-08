@@ -5,7 +5,15 @@ import { money, signedMoney, fmtDateTime, parseJson } from './lib';
 import { Empty, Err } from './ui';
 import type { AuditEntry, Note } from '../shared/types';
 
-export function TxDetail({ id, fromTrash, close }: { id: string; fromTrash?: boolean; close: () => void }) {
+export function TxDetail({
+  id,
+  fromTrash,
+  close,
+}: {
+  id: string;
+  fromTrash?: boolean;
+  close: () => void;
+}) {
   const { refresh, toast, open } = useStore();
   const [tx, setTx] = useState<TxT | null>(null);
   const [audit, setAudit] = useState<AuditEntry[]>([]);
@@ -42,13 +50,23 @@ export function TxDetail({ id, fromTrash, close }: { id: string; fromTrash?: boo
     await refresh();
   };
 
-  if (loadErr) return <div className="detail-empty"><Err msg={loadErr} /><button className="outline" onClick={close}>Close</button></div>;
+  if (loadErr)
+    return (
+      <div className="detail-empty">
+        <Err msg={loadErr} />
+        <button className="outline" onClick={close}>
+          Close
+        </button>
+      </div>
+    );
   if (!tx) return <div className="loading">Loading…</div>;
 
   return (
     <div className="detail">
       <div className="detailamount">
-        <b className={tx.transaction_type === 'income' ? 'positive' : ''}>{signedMoney(tx.amount_minor, tx.transaction_type)}</b>
+        <b className={tx.transaction_type === 'income' ? 'positive' : ''}>
+          {signedMoney(tx.amount_minor, tx.transaction_type)}
+        </b>
         <span>
           {tx.transaction_type === 'income' ? 'Income' : 'Expense'} · {tx.status}
           {tx.refunds_transaction_id ? ' · Refund' : ''}
@@ -66,7 +84,9 @@ export function TxDetail({ id, fromTrash, close }: { id: string; fromTrash?: boo
         <Detail label="Description" value={tx.description || '—'} />
         <Detail label="Note" value={tx.note || '—'} />
         {tx.tax_minor ? <Detail label="Tax" value={money(tx.tax_minor)} /> : null}
-        {tx.quantity != null ? <Detail label="Quantity" value={`${tx.quantity}${tx.unit ? ' ' + tx.unit : ''}`} /> : null}
+        {tx.quantity != null ? (
+          <Detail label="Quantity" value={`${tx.quantity}${tx.unit ? ' ' + tx.unit : ''}`} />
+        ) : null}
       </div>
 
       {tx.tags?.length ? (
@@ -84,7 +104,10 @@ export function TxDetail({ id, fromTrash, close }: { id: string; fromTrash?: boo
           <h4>Splits</h4>
           {tx.splits.map((s) => (
             <div className="splitview" key={s.id}>
-              <span>{s.category_name || 'Uncategorized'}{s.description ? ` · ${s.description}` : ''}</span>
+              <span>
+                {s.category_name || 'Uncategorized'}
+                {s.description ? ` · ${s.description}` : ''}
+              </span>
               <b>{money(s.amount_minor)}</b>
             </div>
           ))}
@@ -95,7 +118,9 @@ export function TxDetail({ id, fromTrash, close }: { id: string; fromTrash?: boo
         <section className="mini">
           <h4>Refunded</h4>
           <div className="splitview">
-            <span>{tx.refunds?.length || 0} refund{tx.refunds?.length === 1 ? '' : 's'}</span>
+            <span>
+              {tx.refunds?.length || 0} refund{tx.refunds?.length === 1 ? '' : 's'}
+            </span>
             <b className="positive">+{money(tx.refunded_minor)}</b>
           </div>
         </section>
@@ -136,10 +161,26 @@ export function TxDetail({ id, fromTrash, close }: { id: string; fromTrash?: boo
           </>
         ) : (
           <>
-            <button className="primary" onClick={() => api.restoreTransaction(id).then(() => after('Restored')).then(close)}>
+            <button
+              className="primary"
+              onClick={() =>
+                api
+                  .restoreTransaction(id)
+                  .then(() => after('Restored'))
+                  .then(close)
+              }
+            >
               Restore
             </button>
-            <button className="danger" onClick={() => api.purgeTransaction(id).then(() => after('Permanently deleted')).then(close)}>
+            <button
+              className="danger"
+              onClick={() =>
+                api
+                  .purgeTransaction(id)
+                  .then(() => after('Permanently deleted'))
+                  .then(close)
+              }
+            >
               Delete forever
             </button>
           </>
@@ -155,10 +196,13 @@ export function TxDetail({ id, fromTrash, close }: { id: string; fromTrash?: boo
           <button
             className="danger"
             onClick={() =>
-              api.deleteTransaction(id).then(() => after('Moved to trash')).then(() => {
-                setConfirm(false);
-                close();
-              })
+              api
+                .deleteTransaction(id)
+                .then(() => after('Moved to trash'))
+                .then(() => {
+                  setConfirm(false);
+                  close();
+                })
             }
           >
             Delete
@@ -182,7 +226,9 @@ function AuditDiff({ before, after }: { before: string | null; after: string | n
   const b = parseJson(before) || {};
   const a = parseJson(after) || {};
   const keys = Array.from(new Set([...Object.keys(b), ...Object.keys(a)])).filter(
-    (k) => !['id', 'created_at', 'updated_at', 'deleted_at'].includes(k) && JSON.stringify(b[k]) !== JSON.stringify(a[k]),
+    (k) =>
+      !['id', 'created_at', 'updated_at', 'deleted_at'].includes(k) &&
+      JSON.stringify(b[k]) !== JSON.stringify(a[k])
   );
   if (!keys.length) return null;
   return (
@@ -199,7 +245,15 @@ function AuditDiff({ before, after }: { before: string | null; after: string | n
   );
 }
 
-function Attachments({ attach, onChanged, onToast }: { attach: AttachmentRow[]; onChanged: () => Promise<void>; onToast: (m: string) => Promise<void> }) {
+function Attachments({
+  attach,
+  onChanged,
+  onToast,
+}: {
+  attach: AttachmentRow[];
+  onChanged: () => Promise<void>;
+  onToast: (m: string) => Promise<void>;
+}) {
   const [kind, setKind] = useState<'image' | 'link'>('link');
   const [url, setUrl] = useState('');
   const [fileName, setFileName] = useState('');
@@ -208,7 +262,12 @@ function Attachments({ attach, onChanged, onToast }: { attach: AttachmentRow[]; 
   const add = async () => {
     if (!url.trim()) return;
     try {
-      await api.createAttachment({ transactionId, kind, url: url.trim(), fileName: fileName || url.trim() });
+      await api.createAttachment({
+        transactionId,
+        kind,
+        url: url.trim(),
+        fileName: fileName || url.trim(),
+      });
       setUrl('');
       setFileName('');
       await onToast('Attachment added');
@@ -246,7 +305,15 @@ function Attachments({ attach, onChanged, onToast }: { attach: AttachmentRow[]; 
   );
 }
 
-function NotesBlock({ notes, onChanged, onToast }: { notes: Note[]; onChanged: () => Promise<void>; onToast: (m: string) => Promise<void> }) {
+function NotesBlock({
+  notes,
+  onChanged,
+  onToast,
+}: {
+  notes: Note[];
+  onChanged: () => Promise<void>;
+  onToast: (m: string) => Promise<void>;
+}) {
   const [title, setTitle] = useState('');
   const [content, setContent] = useState('');
   const [rem, setRem] = useState('');
@@ -254,7 +321,12 @@ function NotesBlock({ notes, onChanged, onToast }: { notes: Note[]; onChanged: (
   const add = async () => {
     if (!title.trim() && !content.trim()) return;
     try {
-      await api.saveNote(null, { transactionId: notes[0]?.transaction_id || undefined, title, content, reminderAt: rem ? new Date(rem).toISOString() : null });
+      await api.saveNote(null, {
+        transactionId: notes[0]?.transaction_id || undefined,
+        title,
+        content,
+        reminderAt: rem ? new Date(rem).toISOString() : null,
+      });
       setTitle('');
       setContent('');
       setRem('');
@@ -269,7 +341,10 @@ function NotesBlock({ notes, onChanged, onToast }: { notes: Note[]; onChanged: (
       <h4>Notes</h4>
       {notes.map((n) => (
         <div className="noterow" key={n.id}>
-          <button className="notedone" onClick={() => api.saveNote(n.id, { isDone: !n.is_done }).then(onChanged)}>
+          <button
+            className="notedone"
+            onClick={() => api.saveNote(n.id, { isDone: !n.is_done }).then(onChanged)}
+          >
             {n.is_done ? '✓' : '○'}
           </button>
           <div>

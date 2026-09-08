@@ -3,20 +3,31 @@ import { api, TxDetail } from './api';
 import { useStore } from './store';
 import { money, dtLocalNow, toLocalInput, toIso, toInput, uid, parse } from './lib';
 import { Field, SaveButton, Err } from './ui';
-import type { Category, PaymentMethod, Account, Payee, TxType, TxStatus, SplitRow } from '../shared/types';
+import type {
+  Category,
+  PaymentMethod,
+  Account,
+  Payee,
+  TxType,
+  TxStatus,
+  SplitRow,
+} from '../shared/types';
 
 type SplitDraft = { key: string; categoryId: string; amount: string; description: string };
 
-export function TxForm({
-  id,
-  title,
-  close,
-}: {
-  id?: string;
-  title: string;
-  close: () => void;
-}) {
-  const { accounts, categories, methods, payees, tags, suggestions, open, refresh, toast, transactions } = useStore();
+export function TxForm({ id, title, close }: { id?: string; title: string; close: () => void }) {
+  const {
+    accounts,
+    categories,
+    methods,
+    payees,
+    tags,
+    suggestions,
+    open,
+    refresh,
+    toast,
+    transactions,
+  } = useStore();
 
   const [loading, setLoading] = useState(!!id);
   const [type, setType] = useState<TxType>('expense');
@@ -66,7 +77,14 @@ export function TxForm({
         setUnit(t.unit || '');
         setRefundsTxId(t.refunds_transaction_id || '');
         setTagSel(t.tags || []);
-        setSplits((t.splits || []).map((s: SplitRow) => ({ key: uid(), categoryId: s.category_id || '', amount: toInput(s.amount_minor), description: s.description || '' })));
+        setSplits(
+          (t.splits || []).map((s: SplitRow) => ({
+            key: uid(),
+            categoryId: s.category_id || '',
+            amount: toInput(s.amount_minor),
+            description: s.description || '',
+          }))
+        );
         setShowAdvanced(true);
       })
       .catch((e) => setErr(e instanceof Error ? e.message : 'Unable to load'))
@@ -74,17 +92,26 @@ export function TxForm({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [id]);
 
-  const accountMethods = useMemo(() => methods.filter((m) => m.account_id === accountId), [methods, accountId]);
+  const accountMethods = useMemo(
+    () => methods.filter((m) => m.account_id === accountId),
+    [methods, accountId]
+  );
   useEffect(() => {
     if (!accountMethods.some((m) => m.id === methodId)) setMethodId('');
   }, [accountId]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const cats = useMemo(() => categories.filter((c) => c.kind === 'both' || c.kind === type), [categories, type]);
+  const cats = useMemo(
+    () => categories.filter((c) => c.kind === 'both' || c.kind === type),
+    [categories, type]
+  );
   useEffect(() => {
     if (categoryId && !cats.some((c) => c.id === categoryId)) setCategoryId('');
   }, [type]); // eslint-disable-line react-hooks/exhaustive-deps
   const roots = cats.filter((c) => !c.parent_id);
-  const expenses = useMemo(() => transactions.filter((t) => t.transaction_type === 'expense'), [transactions]);
+  const expenses = useMemo(
+    () => transactions.filter((t) => t.transaction_type === 'expense'),
+    [transactions]
+  );
 
   const addTag = (name: string) => {
     const n = name.trim().replace(/,+$/, '');
@@ -123,8 +150,14 @@ export function TxForm({
       if (type === 'income' && refundsTxId) payload.refundsTransactionId = refundsTxId;
 
       if (hasSplits) {
-        const parts = splits.map((s) => ({ categoryId: s.categoryId || null, amount: (parse(s.amount) || 0) / 100, description: s.description, note: '' }));
-        if (Math.abs(splitTotal - (minor || 0)) > 1) throw new Error('Split amounts must sum to the total.');
+        const parts = splits.map((s) => ({
+          categoryId: s.categoryId || null,
+          amount: (parse(s.amount) || 0) / 100,
+          description: s.description,
+          note: '',
+        }));
+        if (Math.abs(splitTotal - (minor || 0)) > 1)
+          throw new Error('Split amounts must sum to the total.');
         payload.isSplitParent = true;
         payload.splits = parts;
       }
@@ -159,11 +192,19 @@ export function TxForm({
       {err && <Err msg={err} />}
 
       <div className="typechoice">
-        <button type="button" className={type === 'expense' ? 'chosen' : ''} onClick={() => setType('expense')}>
+        <button
+          type="button"
+          className={type === 'expense' ? 'chosen' : ''}
+          onClick={() => setType('expense')}
+        >
           − <b>Expense</b>
           <span>Money going out</span>
         </button>
-        <button type="button" className={type === 'income' ? 'chosen incomechoice' : ''} onClick={() => setType('income')}>
+        <button
+          type="button"
+          className={type === 'income' ? 'chosen incomechoice' : ''}
+          onClick={() => setType('income')}
+        >
           ＋ <b>Income</b>
           <span>Money coming in</span>
         </button>
@@ -172,7 +213,14 @@ export function TxForm({
       <label className="amount">
         <span>Amount</span>
         <div>
-          ₹<input required inputMode="decimal" value={amount} onChange={(e) => setAmount(e.target.value)} placeholder="0.00" />
+          ₹
+          <input
+            required
+            inputMode="decimal"
+            value={amount}
+            onChange={(e) => setAmount(e.target.value)}
+            placeholder="0.00"
+          />
         </div>
       </label>
 
@@ -209,14 +257,29 @@ export function TxForm({
             <div className="pickerpanel">
               {roots.map((r) => (
                 <div key={r.id}>
-                  <button type="button" className="catpick rootpick" onClick={() => { setCategoryId(r.id); setCatOpen(false); }}>
+                  <button
+                    type="button"
+                    className="catpick rootpick"
+                    onClick={() => {
+                      setCategoryId(r.id);
+                      setCatOpen(false);
+                    }}
+                  >
                     {r.name}
                     <span>{r.kind}</span>
                   </button>
                   {cats
                     .filter((c) => c.parent_id === r.id)
                     .map((c) => (
-                      <button type="button" className="catpick childpick" key={c.id} onClick={() => { setCategoryId(c.id); setCatOpen(false); }}>
+                      <button
+                        type="button"
+                        className="catpick childpick"
+                        key={c.id}
+                        onClick={() => {
+                          setCategoryId(c.id);
+                          setCatOpen(false);
+                        }}
+                      >
                         ↳ {c.name}
                       </button>
                     ))}
@@ -227,7 +290,12 @@ export function TxForm({
           )}
         </div>
         <Field label="Payee / payer">
-          <input value={payee} onChange={(e) => setPayee(e.target.value)} list="payees" placeholder="Who was this with?" />
+          <input
+            value={payee}
+            onChange={(e) => setPayee(e.target.value)}
+            list="payees"
+            placeholder="Who was this with?"
+          />
           <datalist id="payees">
             {payees.map((p: Payee) => (
               <option key={p.id} value={p.name} />
@@ -240,7 +308,12 @@ export function TxForm({
         <h3>Details</h3>
         <div className="relative">
           <label>Description</label>
-          <input value={description} onChange={(e) => setDescription(e.target.value)} placeholder="e.g. Groceries at Nature's Basket" list="descriptions" />
+          <input
+            value={description}
+            onChange={(e) => setDescription(e.target.value)}
+            placeholder="e.g. Groceries at Nature's Basket"
+            list="descriptions"
+          />
           <datalist id="descriptions">
             {suggestions.map((s) => (
               <option key={s} value={s} />
@@ -249,7 +322,11 @@ export function TxForm({
         </div>
         <label className="note">
           <span>Note</span>
-          <input value={note} onChange={(e) => setNote(e.target.value)} placeholder="Optional note" />
+          <input
+            value={note}
+            onChange={(e) => setNote(e.target.value)}
+            placeholder="Optional note"
+          />
         </label>
 
         {type === 'income' && (
@@ -269,7 +346,12 @@ export function TxForm({
           <span>Tags</span>
           <div className="tagchips">
             {tagSel.map((t) => (
-              <button type="button" key={t} className="chip" onClick={() => setTagSel(tagSel.filter((x) => x !== t))}>
+              <button
+                type="button"
+                key={t}
+                className="chip"
+                onClick={() => setTagSel(tagSel.filter((x) => x !== t))}
+              >
                 #{t} <i>×</i>
               </button>
             ))}
@@ -295,14 +377,23 @@ export function TxForm({
               .filter((t) => !tagSel.includes(t.name))
               .slice(0, 6)
               .map((t) => (
-                <button type="button" key={t.id} className="chip ghost" onClick={() => setTagSel([...tagSel, t.name])}>
+                <button
+                  type="button"
+                  key={t.id}
+                  className="chip ghost"
+                  onClick={() => setTagSel([...tagSel, t.name])}
+                >
                   +{t.name}
                 </button>
               ))}
           </div>
         </div>
 
-        <button type="button" className="link toggle-adv" onClick={() => setShowAdvanced(!showAdvanced)}>
+        <button
+          type="button"
+          className="link toggle-adv"
+          onClick={() => setShowAdvanced(!showAdvanced)}
+        >
           {showAdvanced ? 'Hide' : 'Show'} advanced & splits ⌄
         </button>
 
@@ -310,30 +401,54 @@ export function TxForm({
           <div className="adv">
             <div className="formgrid">
               <Field label="Reference / check no.">
-                <input value={referenceNumber} onChange={(e) => setReferenceNumber(e.target.value)} />
+                <input
+                  value={referenceNumber}
+                  onChange={(e) => setReferenceNumber(e.target.value)}
+                />
               </Field>
               <Field label="Tax (₹)">
-                <input inputMode="decimal" value={tax} onChange={(e) => setTax(e.target.value)} placeholder="0.00" />
+                <input
+                  inputMode="decimal"
+                  value={tax}
+                  onChange={(e) => setTax(e.target.value)}
+                  placeholder="0.00"
+                />
               </Field>
               <Field label="Quantity">
-                <input inputMode="decimal" value={quantity} onChange={(e) => setQuantity(e.target.value)} />
+                <input
+                  inputMode="decimal"
+                  value={quantity}
+                  onChange={(e) => setQuantity(e.target.value)}
+                />
               </Field>
               <Field label="Unit">
-                <input value={unit} onChange={(e) => setUnit(e.target.value)} placeholder="kg / hr / L" />
+                <input
+                  value={unit}
+                  onChange={(e) => setUnit(e.target.value)}
+                  placeholder="kg / hr / L"
+                />
               </Field>
             </div>
 
             <div className="splits">
               <div className="splitshead">
                 <h4>Split this amount</h4>
-                <button type="button" className="outline" disabled={!splits.length} onClick={() => setSplits([])}>
+                <button
+                  type="button"
+                  className="outline"
+                  disabled={!splits.length}
+                  onClick={() => setSplits([])}
+                >
                   Clear
                 </button>
               </div>
               {splits.map((s, i) => (
                 <div className="splitrow" key={s.key}>
                   <span className="splitidx">{i + 1}</span>
-                  <select value={s.categoryId} onChange={(e) => updateSplit(s.key, { categoryId: e.target.value })}>
+                  <select
+                    value={s.categoryId}
+                    onChange={(e) => updateSplit(s.key, { categoryId: e.target.value })}
+                  >
                     <option value="">Category</option>
                     {cats.map((c) => (
                       <option key={c.id} value={c.id}>
@@ -342,18 +457,43 @@ export function TxForm({
                       </option>
                     ))}
                   </select>
-                  <input inputMode="decimal" className="splitamt" value={s.amount} onChange={(e) => updateSplit(s.key, { amount: e.target.value })} placeholder="0.00" />
-                  <input value={s.description} onChange={(e) => updateSplit(s.key, { description: e.target.value })} placeholder="Description" />
-                  <button type="button" className="splitrm" onClick={() => setSplits(splits.filter((x) => x.key !== s.key))}>
+                  <input
+                    inputMode="decimal"
+                    className="splitamt"
+                    value={s.amount}
+                    onChange={(e) => updateSplit(s.key, { amount: e.target.value })}
+                    placeholder="0.00"
+                  />
+                  <input
+                    value={s.description}
+                    onChange={(e) => updateSplit(s.key, { description: e.target.value })}
+                    placeholder="Description"
+                  />
+                  <button
+                    type="button"
+                    className="splitrm"
+                    onClick={() => setSplits(splits.filter((x) => x.key !== s.key))}
+                  >
                     ×
                   </button>
                 </div>
               ))}
-              <button type="button" className="link" onClick={() => setSplits([...splits, { key: uid(), categoryId: '', amount: '', description: '' }])}>
+              <button
+                type="button"
+                className="link"
+                onClick={() =>
+                  setSplits([
+                    ...splits,
+                    { key: uid(), categoryId: '', amount: '', description: '' },
+                  ])
+                }
+              >
                 ＋ Add split part
               </button>
               {splits.length > 0 && (
-                <div className={`splitsum${hasSplits && Math.abs(splitTotal - (parse(amount) || 0)) <= 1 ? ' ok' : ' bad'}`}>
+                <div
+                  className={`splitsum${hasSplits && Math.abs(splitTotal - (parse(amount) || 0)) <= 1 ? ' ok' : ' bad'}`}
+                >
                   Total {money(splitTotal)} {hasSplits ? `/ ${money(parse(amount) || 0)}` : ''}
                 </div>
               )}
@@ -364,10 +504,18 @@ export function TxForm({
 
       <div className="statusrow">
         <span>Status</span>
-        <button type="button" className={status === 'cleared' ? 'active' : ''} onClick={() => setStatus('cleared')}>
+        <button
+          type="button"
+          className={status === 'cleared' ? 'active' : ''}
+          onClick={() => setStatus('cleared')}
+        >
           ✓ Cleared
         </button>
-        <button type="button" className={status === 'uncleared' ? 'active' : ''} onClick={() => setStatus('uncleared')}>
+        <button
+          type="button"
+          className={status === 'uncleared' ? 'active' : ''}
+          onClick={() => setStatus('uncleared')}
+        >
           ○ Uncleared
         </button>
       </div>

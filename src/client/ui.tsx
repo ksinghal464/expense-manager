@@ -1,6 +1,14 @@
 import React, { useState } from 'react';
 
-export function Overlay({ children, onClose, wide }: { children: React.ReactNode; onClose: () => void; wide?: boolean }) {
+export function Overlay({
+  children,
+  onClose,
+  wide,
+}: {
+  children: React.ReactNode;
+  onClose: () => void;
+  wide?: boolean;
+}) {
   return (
     <div className="overlay" onMouseDown={onClose}>
       <div className={`modal${wide ? ' witemod' : ''}`} onMouseDown={(e) => e.stopPropagation()}>
@@ -10,7 +18,15 @@ export function Overlay({ children, onClose, wide }: { children: React.ReactNode
   );
 }
 
-export function ModalHead({ title, sub, onClose }: { title: string; sub?: string; onClose: () => void }) {
+export function ModalHead({
+  title,
+  sub,
+  onClose,
+}: {
+  title: string;
+  sub?: string;
+  onClose: () => void;
+}) {
   return (
     <div className="modalhead">
       <div>
@@ -39,7 +55,15 @@ export function Err({ msg }: { msg: string }) {
   return msg ? <div className="error">{msg}</div> : null;
 }
 
-export function SaveButton({ saving, label, onClick }: { saving: boolean; label: string; onClick?: () => void }) {
+export function SaveButton({
+  saving,
+  label,
+  onClick,
+}: {
+  saving: boolean;
+  label: string;
+  onClick?: () => void;
+}) {
   return (
     <button type="submit" className="save" disabled={saving} onClick={onClick}>
       {saving ? 'Saving…' : label}
@@ -60,7 +84,12 @@ export function Segmented<T extends string>({
   return (
     <div className="segmented">
       {options.map(([id, label]) => (
-        <button key={id} type="button" className={value === id ? 'selected' : ''} onClick={() => onChange(id)}>
+        <button
+          key={id}
+          type="button"
+          className={value === id ? 'selected' : ''}
+          onClick={() => onChange(id)}
+        >
           {label}
         </button>
       ))}
@@ -146,7 +175,15 @@ export function FieldsModal({
 }
 
 /** Inline confirm (returns a cancel/confirm button pair when armed). */
-export function ConfirmButton({ onConfirm, label = 'Delete', confirmLabel = 'Confirm' }: { onConfirm: () => void; label?: string; confirmLabel?: string }) {
+export function ConfirmButton({
+  onConfirm,
+  label = 'Delete',
+  confirmLabel = 'Confirm',
+}: {
+  onConfirm: () => void;
+  label?: string;
+  confirmLabel?: string;
+}) {
   const [armed, setArmed] = React.useState(false);
   if (armed) {
     return (

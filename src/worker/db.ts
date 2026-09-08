@@ -3,7 +3,16 @@ import { Env, HttpError } from './http';
 export const now = () => new Date().toISOString();
 export const id = () => crypto.randomUUID();
 
-const MASTER = new Set(['accounts', 'categories', 'payment_methods', 'payees', 'tags', 'notes', 'attachments', 'recurring_rules']);
+const MASTER = new Set([
+  'accounts',
+  'categories',
+  'payment_methods',
+  'payees',
+  'tags',
+  'notes',
+  'attachments',
+  'recurring_rules',
+]);
 const CHECKABLE = new Set([
   'accounts',
   'categories',
@@ -23,11 +32,11 @@ export async function audit(
   action: 'create' | 'update' | 'delete' | 'restore',
   before: unknown,
   after: unknown,
-  metadata?: unknown,
+  metadata?: unknown
 ): Promise<void> {
   await env.DB.prepare(
     `INSERT INTO audit_log (id, occurred_at, entity_type, entity_id, action, before_json, after_json, metadata_json)
-     VALUES (?,?,?,?,?,?,?,?)`,
+     VALUES (?,?,?,?,?,?,?,?)`
   )
     .bind(
       id(),
@@ -37,7 +46,7 @@ export async function audit(
       action,
       before == null ? null : JSON.stringify(before),
       after == null ? null : JSON.stringify(after),
-      metadata == null ? null : JSON.stringify(metadata),
+      metadata == null ? null : JSON.stringify(metadata)
     )
     .run();
 }
@@ -63,7 +72,7 @@ export async function exists(env: Env, table: string, fk: string | null): Promis
 /** Validate that all provided FKs point at live rows. */
 export async function checkFks(
   env: Env,
-  refs: Record<string, string | null>,
+  refs: Record<string, string | null>
 ): Promise<string | null> {
   for (const [table, fk] of Object.entries(refs)) {
     if (fk && !(await exists(env, table, fk))) return `Invalid reference to ${table} (${fk}).`;

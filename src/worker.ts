@@ -25,6 +25,8 @@ export default {
 
   async scheduled(_event: ScheduledEvent, env: Env): Promise<void> {
     const result = await runRecurring(env);
-    console.log(`recurring: created=${result.created} skipped=${result.skipped} deactivated=${result.deactivated}`);
+    console.log(
+      `recurring: created=${result.created} skipped=${result.skipped} deactivated=${result.deactivated}`
+    );
   },
 };
