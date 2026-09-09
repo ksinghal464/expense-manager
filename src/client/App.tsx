@@ -88,8 +88,12 @@ function Shell() {
 
       {modal && modal.kind === 'tx' && (
         <Overlay onClose={close}>
-          <ModalHead title="New transaction" onClose={close} />
-          <TxForm title="New transaction" close={close} />
+          <ModalHead title={modal.refundOf ? 'Add refund' : 'New transaction'} onClose={close} />
+          <TxForm
+            title={modal.refundOf ? 'Add refund' : 'New transaction'}
+            refundOf={modal.refundOf}
+            close={close}
+          />
         </Overlay>
       )}
 

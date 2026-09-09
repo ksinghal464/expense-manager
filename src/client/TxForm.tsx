@@ -11,6 +11,7 @@ import {
   parse,
   readFileAsDataUrl,
   MAX_ATTACHMENT_BYTES,
+  fmtDateTime,
 } from './lib';
 import { Field, SaveButton, Err } from './ui';
 import type {
@@ -32,7 +33,17 @@ type SplitDraft = {
 };
 type StagedFile = { key: string; file: File; dataUrl: string };
 
-export function TxForm({ id, title, close }: { id?: string; title: string; close: () => void }) {
+export function TxForm({
+  id,
+  title,
+  refundOf,
+  close,
+}: {
+  id?: string;
+  title: string;
+  refundOf?: string;
+  close: () => void;
+}) {
   const {
     accounts,
     categories,
@@ -105,6 +116,26 @@ export function TxForm({ id, title, close }: { id?: string; title: string; close
       .catch(() => setExistingAttach([]));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [id]);
+
+  // Seed a new transaction as a refund of an existing expense (opened via
+  // "Add refund" on that expense's detail page): same account/category/
+  // payment method/payee so it's easy to just enter the refunded amount.
+  useEffect(() => {
+    if (id || !refundOf) return;
+    api
+      .transaction(refundOf)
+      .then((t: TxDetail) => {
+        setType('income');
+        setAccountId(t.account_id);
+        setCategoryId(t.category_id || '');
+        setMethodId(t.payment_method_id || '');
+        setPayee(t.payee_name || '');
+        setDescription(t.description ? `Refund: ${t.description}` : 'Refund');
+        setRefundsTxId(refundOf);
+      })
+      .catch((e) => setErr(e instanceof Error ? e.message : 'Unable to load refund target'));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [id, refundOf]);
 
   const accountMethods = useMemo(
     () => methods.filter((m) => m.account_id === accountId),
@@ -328,7 +359,9 @@ export function TxForm({ id, title, close }: { id?: string; title: string; close
         <div className="field relative">
           <span>Category *</span>
           <button type="button" className="picker" onClick={() => setCatOpen(!catOpen)}>
-            {selectedCategoryLabel || 'Select category'}
+            <span className={selectedCategoryLabel ? '' : 'placeholder'}>
+              {selectedCategoryLabel || 'Select category'}
+            </span>
             <span>⌄</span>
           </button>
           {catOpen && (
@@ -413,7 +446,10 @@ export function TxForm({ id, title, close }: { id?: string; title: string; close
               <option value="">Not a refund</option>
               {expenses.map((t) => (
                 <option key={t.id} value={t.id}>
-                  {t.description || t.payee_name || 'Expense'} · {money(t.amount_minor)}
+                  {fmtDateTime(t.occurred_at)} · {money(t.amount_minor)} ·{' '}
+                  {t.status === 'uncleared' ? 'Uncleared' : 'Cleared'} ·{' '}
+                  {t.description || t.payee_name || 'Expense'}
+                  {t.note ? ` — ${t.note}` : ''}
                 </option>
               ))}
             </select>

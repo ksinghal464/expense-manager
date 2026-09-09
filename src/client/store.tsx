@@ -27,7 +27,7 @@ export type ActivityFilter = {
 };
 
 export type Modal =
-  | { kind: 'tx' }
+  | { kind: 'tx'; refundOf?: string }
   | { kind: 'editTx'; id: string }
   | { kind: 'detail'; id: string; fromTrash?: boolean }
   | { kind: 'account'; item?: Account }

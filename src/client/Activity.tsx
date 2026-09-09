@@ -44,6 +44,7 @@ const DATE_PRESETS: { key: string; label: string; from: () => string; to: () => 
     },
     { key: 'last30', label: 'Last 30 days', from: () => daysAgo(30), to: () => null },
     { key: 'ytd', label: 'YTD', from: () => periodStart('year'), to: () => null },
+    { key: 'all', label: 'All time', from: () => '1970-01-01T00:00:00.000Z', to: () => null },
   ];
 
 export function Activity() {

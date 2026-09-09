@@ -18,6 +18,8 @@ type FrameData = {
 
 type CustomWidget = { key: string; label: string; from: string; to: string | null };
 
+const EPOCH_ISO = '1970-01-01T00:00:00.000Z';
+
 const ALL_PRESETS: { key: string; label: string; from: (now: number) => string }[] = [
   { key: 'today', label: 'Today', from: (n) => periodStart('day', n) },
   { key: 'week', label: 'This week', from: (n) => periodStart('week', n) },
@@ -25,11 +27,38 @@ const ALL_PRESETS: { key: string; label: string; from: (now: number) => string }
   { key: 'ytd', label: 'This year (YTD)', from: (n) => periodStart('year', n) },
   { key: 'last30', label: 'Last 30 days', from: (n) => daysAgo(30, n) },
   { key: 'last12m', label: 'Last 12 months', from: (n) => daysAgo(365, n) },
+  { key: 'all', label: 'All time', from: () => EPOCH_ISO },
 ];
 
 function todayInputValue(): string {
   const d = new Date();
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
+
+// ---- persist widget layout for the current browser tab session only ----
+// (sessionStorage, not localStorage: "remain till the session is active",
+// cleared automatically once the tab is closed.)
+const PERSIST_KEY = 'em_dashboard_layout_v1';
+type PersistedLayout = {
+  accountFilter: string;
+  activeKeys: string[];
+  customWidgets: CustomWidget[];
+  activeBreakdowns: ('method' | 'payee')[];
+};
+function loadPersisted(): PersistedLayout | null {
+  try {
+    const raw = sessionStorage.getItem(PERSIST_KEY);
+    return raw ? (JSON.parse(raw) as PersistedLayout) : null;
+  } catch {
+    return null;
+  }
+}
+function savePersisted(layout: PersistedLayout) {
+  try {
+    sessionStorage.setItem(PERSIST_KEY, JSON.stringify(layout));
+  } catch {
+    // ignore (private browsing, storage disabled, etc.)
+  }
 }
 
 /** yyyy-mm-dd (local) -> UTC ISO instant at local midnight. */
@@ -250,20 +279,32 @@ async function mergeBalance(
 
 export function Dashboard() {
   const { dash, accounts, transactions, go, open, openActivity } = useStore();
+  const persisted = useMemo(() => loadPersisted(), []);
 
   // ---- account scope: everything below reacts to this ----
-  const [accountFilter, setAccountFilter] = useState('');
+  const [accountFilter, setAccountFilter] = useState(persisted?.accountFilter ?? '');
 
   // ---- timeframe widgets ----
-  const [activeKeys, setActiveKeys] = useState<string[]>(['week', 'month']);
-  const [customWidgets, setCustomWidgets] = useState<CustomWidget[]>([]);
+  const [activeKeys, setActiveKeys] = useState<string[]>(
+    persisted?.activeKeys ?? ['week', 'month']
+  );
+  const [customWidgets, setCustomWidgets] = useState<CustomWidget[]>(
+    persisted?.customWidgets ?? []
+  );
   const [frameCache, setFrameCache] = useState<Record<string, FrameData>>({});
   const [customFrom, setCustomFrom] = useState('');
   const [customTo, setCustomTo] = useState(todayInputValue());
   const [showCustom, setShowCustom] = useState(false);
 
   // ---- on-demand breakdown widgets (category is always shown separately) ----
-  const [activeBreakdowns, setActiveBreakdowns] = useState<('method' | 'payee')[]>([]);
+  const [activeBreakdowns, setActiveBreakdowns] = useState<('method' | 'payee')[]>(
+    persisted?.activeBreakdowns ?? []
+  );
+
+  // Persist the widget layout for the rest of this browser tab session.
+  useEffect(() => {
+    savePersisted({ accountFilter, activeKeys, customWidgets, activeBreakdowns });
+  }, [accountFilter, activeKeys, customWidgets, activeBreakdowns]);
 
   // Seed from the bootstrap dashboard payload (all-accounts) so the default
   // widgets aren't empty for an instant before the scoped fetch resolves.

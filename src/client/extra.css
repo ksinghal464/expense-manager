@@ -1304,3 +1304,19 @@ h1 {
 .accountscope {
   margin-bottom: 12px;
 }
+
+/* --- placeholder-style greyed text for required selects showing their
+   disabled "Select …" option (Account, Payment method, etc.) --- */
+select:required:invalid {
+  color: #9aa6b6;
+}
+select option {
+  color: #142033;
+}
+select option[disabled] {
+  color: #9aa6b6;
+}
+
+.picker .placeholder {
+  color: #9aa6b6;
+}

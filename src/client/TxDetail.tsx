@@ -195,6 +195,11 @@ export function TxDetail({
             <button className="outline" onClick={() => open({ kind: 'editTx', id })}>
               Edit
             </button>
+            {tx.transaction_type === 'expense' && !tx.refunds_transaction_id && (
+              <button className="outline" onClick={() => open({ kind: 'tx', refundOf: id })}>
+                ↩ Add refund
+              </button>
+            )}
             <button className="danger" onClick={() => setConfirm(true)}>
               Delete
             </button>
