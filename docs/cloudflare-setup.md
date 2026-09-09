@@ -26,10 +26,14 @@ credit-card requirement of any kind.
    nothing is stored server-side, so there's no session table to manage.
    The signing key is derived from `APP_PASSWORD` itself, so changing the
    password immediately invalidates every previously-issued session.
-3. `/api/health` and `/api/drive/callback` are intentionally exempt from the
-   password check (health checks need to work unauthenticated, and Google's
-   OAuth redirect lands on the callback path as part of a flow you already
-   started from a logged-in session).
+3. `/api/health`, `/api/drive/connect`, and `/api/drive/callback` are
+   intentionally exempt from the password check (health checks need to work
+   unauthenticated; the Drive connect/callback pair needs to work when
+   opened as a popup window, which doesn't reliably carry the session
+   cookie on that specific top-level navigation in every browser). Note this
+   means anyone with the URL can initiate/redirect the Google Drive linking
+   flow without the app password — low risk for a personal, unpublicized
+   deployment, but worth knowing.
 4. If `APP_PASSWORD` is ever unset, the Worker fails closed (503) rather than
    silently allowing every request through.
 

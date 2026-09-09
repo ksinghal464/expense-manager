@@ -16,7 +16,12 @@ import { Env, HttpError } from './http';
 const COOKIE_NAME = 'em_session';
 const SESSION_MS = 30 * 24 * 3600 * 1000; // 30 days
 
-const BYPASS_PATHS = new Set(['/api/drive/callback', '/api/health', '/api/login']);
+const BYPASS_PATHS = new Set([
+  '/api/drive/connect',
+  '/api/drive/callback',
+  '/api/health',
+  '/api/login',
+]);
 
 function b64url(bytes: Uint8Array): string {
   let s = '';
