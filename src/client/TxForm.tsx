@@ -72,6 +72,7 @@ export function TxForm({
   const [tagSel, setTagSel] = useState<string[]>([]);
   const [tagInput, setTagInput] = useState('');
   const [catOpen, setCatOpen] = useState(false);
+  const [descOpen, setDescOpen] = useState(false);
   const [splits, setSplits] = useState<SplitDraft[]>([]);
   const [showAdvanced, setShowAdvanced] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -167,6 +168,15 @@ export function TxForm({
     () => transactions.filter((t) => t.transaction_type === 'expense'),
     [transactions]
   );
+
+  // Autocomplete for the description field: match the whole typed phrase as a
+  // substring of a saved suggestion; with an empty field show the most-used
+  // values so existing descriptions are easy to pick.
+  const descMatches = useMemo(() => {
+    const q = description.trim().toLowerCase();
+    if (!q) return suggestions.slice(0, 12);
+    return suggestions.filter((s) => s.toLowerCase().includes(q)).slice(0, 12);
+  }, [description, suggestions]);
 
   const addTag = (name: string) => {
     const n = name.trim().replace(/,+$/, '');
@@ -421,15 +431,38 @@ export function TxForm({
           <label>Description</label>
           <input
             value={description}
-            onChange={(e) => setDescription(e.target.value)}
+            onChange={(e) => {
+              setDescription(e.target.value);
+              setDescOpen(true);
+            }}
+            onFocus={() => setDescOpen(true)}
+            onBlur={() => window.setTimeout(() => setDescOpen(false), 150)}
+            onKeyDown={(e) => {
+              if (e.key === 'Escape') setDescOpen(false);
+            }}
             placeholder="e.g. Groceries at Nature's Basket"
-            list="descriptions"
+            autoComplete="off"
           />
-          <datalist id="descriptions">
-            {suggestions.map((s) => (
-              <option key={s} value={s} />
-            ))}
-          </datalist>
+          {descOpen && suggestions.length > 0 && (
+            <div className="descpopup">
+              {descMatches.length ? (
+                descMatches.map((s) => (
+                  <button
+                    key={s}
+                    type="button"
+                    onClick={() => {
+                      setDescription(s);
+                      setDescOpen(false);
+                    }}
+                  >
+                    {s}
+                  </button>
+                ))
+              ) : (
+                <div className="popupempty">No matching saved values</div>
+              )}
+            </div>
+          )}
         </div>
         <label className="note">
           <span>Note</span>
