@@ -31,6 +31,7 @@ export function ImportExport({ onDone }: { onDone?: () => void }) {
   const [summary, setSummary] = useState<ImportSummary | null>(null);
   const [mode, setMode] = useState<'append' | 'replace'>('append');
   const [drive, setDrive] = useState<DriveStatus | null>(null);
+  const [connecting, setConnecting] = useState(false);
 
   const loadDrive = () =>
     api
@@ -40,6 +41,9 @@ export function ImportExport({ onDone }: { onDone?: () => void }) {
   useEffect(() => {
     loadDrive();
     // Reflect the redirect back from Google (see /api/drive/callback) in the URL.
+    // This only fires for the same-tab fallback path (popup blocked, or the
+    // connect link opened directly) — the normal popup flow is handled by
+    // the postMessage listener below instead, without ever touching the URL.
     const params = new URLSearchParams(window.location.search);
     if (params.get('drive') === 'connected') toast('Google Drive connected');
     if (params.get('drive') === 'error') setErr('Google Drive connection was cancelled or failed.');
@@ -49,6 +53,55 @@ export function ImportExport({ onDone }: { onDone?: () => void }) {
       window.history.replaceState(null, '', window.location.pathname + (qs ? `?${qs}` : ''));
     }
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Popup-based OAuth: /api/drive/callback posts a message back to this
+  // window (see driveCallbackHtml in worker/drive.ts) instead of navigating
+  // the main tab away and back, so connecting feels like the native app's
+  // "sign in with Google" popup rather than a full page reload.
+  useEffect(() => {
+    const onMessage = (e: MessageEvent) => {
+      if (e.origin !== window.location.origin) return;
+      const data = e.data as { source?: string; status?: string } | null;
+      if (!data || data.source !== 'expense-manager-drive-oauth') return;
+      setConnecting(false);
+      if (data.status === 'connected') {
+        loadDrive();
+        toast('Google Drive connected');
+      } else {
+        setErr('Google Drive connection was cancelled or failed.');
+      }
+    };
+    window.addEventListener('message', onMessage);
+    return () => window.removeEventListener('message', onMessage);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const connectDrive = () => {
+    setErr('');
+    setConnecting(true);
+    const w = 480;
+    const h = 680;
+    const left = window.screenX + Math.max(0, (window.outerWidth - w) / 2);
+    const top = window.screenY + Math.max(0, (window.outerHeight - h) / 2);
+    const popup = window.open(
+      '/api/drive/connect',
+      'gdrive_oauth',
+      `width=${w},height=${h},left=${left},top=${top}`
+    );
+    if (!popup) {
+      // Popup blocked: fall back to the old same-tab redirect flow.
+      setConnecting(false);
+      window.location.href = '/api/drive/connect';
+      return;
+    }
+    // If the user closes the popup without finishing, don't leave the
+    // button stuck showing "Connecting…" forever.
+    const poll = window.setInterval(() => {
+      if (popup.closed) {
+        window.clearInterval(poll);
+        setConnecting(false);
+      }
+    }, 500);
+  };
 
   const doImport = async (text: string) => {
     setBusy('Importing…');
@@ -234,9 +287,9 @@ export function ImportExport({ onDone }: { onDone?: () => void }) {
               in your Drive — Drive is never the live database.
             </div>
             <div className="iorow">
-              <a className="outline" href="/api/drive/connect">
-                Connect Google Drive
-              </a>
+              <button className="outline" onClick={connectDrive} disabled={connecting}>
+                {connecting ? 'Connecting…' : 'Connect Google Drive'}
+              </button>
             </div>
           </>
         ) : (

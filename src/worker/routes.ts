@@ -20,6 +20,7 @@ import { importCsv, exportCsv, exportJson, restoreBackup } from './io';
 import {
   driveAuthUrl,
   driveBackup,
+  driveCallbackHtml,
   driveDisconnect,
   driveHandleCallback,
   driveRestore,
@@ -1525,16 +1526,16 @@ export async function route(request: Request, url: URL, env: Env): Promise<Respo
     const error = url.searchParams.get('error');
     const back = `${url.protocol}//${url.host}/?manage=data`;
     if (error)
-      return res(new Response(null, { status: 302, headers: { location: `${back}&drive=error` } }));
+      return res(textBody(driveCallbackHtml('error', `${back}&drive=error`), 'text/html; charset=utf-8'));
     if (!code) throw new HttpError(400, 'Missing authorization code.');
     try {
       await driveHandleCallback(env, url, code, state);
     } catch (e) {
       console.error('drive: OAuth callback failed', e);
-      return res(new Response(null, { status: 302, headers: { location: `${back}&drive=error` } }));
+      return res(textBody(driveCallbackHtml('error', `${back}&drive=error`), 'text/html; charset=utf-8'));
     }
     return res(
-      new Response(null, { status: 302, headers: { location: `${back}&drive=connected` } })
+      textBody(driveCallbackHtml('connected', `${back}&drive=connected`), 'text/html; charset=utf-8')
     );
   }
   if (m === 'POST' && p === '/api/drive/disconnect') {

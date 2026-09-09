@@ -304,3 +304,36 @@ export async function driveSetAutoBackup(env: Env, enabled: boolean): Promise<vo
 export async function setDriveBackupError(env: Env, message: string): Promise<void> {
   await setSetting(env, 'drive_last_backup_error', message.slice(0, 500));
 }
+
+/**
+ * HTML page returned by /api/drive/callback instead of a bare redirect, so
+ * the OAuth round trip can be completed from a popup window (like a native
+ * app's "Sign in with Google") without ever navigating the main app tab
+ * away. If it detects a `window.opener` (i.e. it really is running in a
+ * popup opened by the app), it hands the result back via postMessage and
+ * closes itself; otherwise (popup blocked, or the connect link was opened
+ * in the same tab) it falls back to the previous behavior of redirecting
+ * the current tab back into the app.
+ */
+export function driveCallbackHtml(status: 'connected' | 'error', back: string): string {
+  const safeBack = JSON.stringify(back);
+  const safeStatus = JSON.stringify(status);
+  return `<!doctype html>
+<html><head><meta charset="utf-8"><title>Google Drive</title></head>
+<body>
+<p>You can close this window.</p>
+<script>
+(function () {
+  var payload = { source: 'expense-manager-drive-oauth', status: ${safeStatus} };
+  try {
+    if (window.opener) {
+      window.opener.postMessage(payload, window.location.origin);
+      window.close();
+      return;
+    }
+  } catch (e) {}
+  window.location.replace(${safeBack});
+})();
+</script>
+</body></html>`;
+}

@@ -163,14 +163,18 @@ export function Activity() {
     });
   }, [transactions, query, type, accountId, categoryId, methodId, payeeId, status, tag, from, to]);
 
-  // Whether any filter narrows the list down from "every transaction,
-  // across every account" — including just picking one account in the
-  // top-level scope selector, since that's still a narrower view than the
-  // true (opening-balance-based) running balance represents.
-  const hasSubsetFilter = Boolean(
+  // Whether the current selection narrows *within* an account's own
+  // history — i.e. excludes some of that account's real transactions from
+  // view (a text search, the expense/income toggle, a category/payee/
+  // method/status/tag, or a date range). Picking one specific account via
+  // the "Viewing" scope selector does NOT count: with nothing else
+  // narrowing, every one of that account's transactions is still included,
+  // so its real opening-balance-based balance is still meaningful — only
+  // once something else also trims the list does a "balance" stop making
+  // sense and a from-zero "net of this selection" take over instead.
+  const narrowsWithinAccount = Boolean(
     query.trim() ||
     type !== 'all' ||
-    accountId ||
     categoryId !== undefined ||
     methodId ||
     payeeId ||
@@ -181,19 +185,18 @@ export function Activity() {
   );
 
   // Running balance shown per row, plus one combined total for the whole
-  // current view. With no filter active at all, both are the real
-  // opening-balance-based balance (per account for the row, summed across
-  // every account for the total — matching the Dashboard's account
-  // balances). As soon as any filter narrows the list — including just
-  // scoping to one account — both instead reflect the net change over only
-  // what's currently visible (starting from zero): a real balance isn't a
-  // meaningful concept once the list no longer represents "everything" for
-  // an account (e.g. it's just this month, or just one category).
+  // current view. `filtered` already reflects every active filter
+  // (including which account(s) are in scope), so it's always the right
+  // source: if the only filter is "one account", filtered already contains
+  // that account's complete history, so summing from its opening balance is
+  // still correct. The running total per account only resets to zero once
+  // something narrows *within* an account's own transactions (see
+  // narrowsWithinAccount above), since then it no longer represents a real,
+  // complete balance for that account.
   const { balanceById, overallBalance } = useMemo(() => {
-    const source = hasSubsetFilter ? filtered : transactions;
     const openingByAccount = new Map(accounts.map((a) => [a.id, a.opening_balance_minor]));
     const byAccount = new Map<string, typeof transactions>();
-    for (const t of source) {
+    for (const t of filtered) {
       const arr = byAccount.get(t.account_id) || [];
       arr.push(t);
       byAccount.set(t.account_id, arr);
@@ -205,7 +208,7 @@ export function Activity() {
         (a, b) =>
           a.occurred_at.localeCompare(b.occurred_at) || a.created_at.localeCompare(b.created_at)
       );
-      let running = hasSubsetFilter ? 0 : (openingByAccount.get(accId) ?? 0);
+      let running = narrowsWithinAccount ? 0 : (openingByAccount.get(accId) ?? 0);
       for (const t of asc) {
         running += t.transaction_type === 'income' ? t.amount_minor : -t.amount_minor;
         map[t.id] = running;
@@ -213,7 +216,7 @@ export function Activity() {
       overall += running;
     }
     return { balanceById: map, overallBalance: overall };
-  }, [filtered, hasSubsetFilter, transactions, accounts]);
+  }, [filtered, narrowsWithinAccount, accounts]);
 
   const groups: [string, string[]][] = options
     ? [
@@ -323,7 +326,7 @@ export function Activity() {
 
       <div className="filterline">
         <span>
-          {filtered.length} entries · {hasSubsetFilter ? 'Net' : 'Balance'}{' '}
+          {filtered.length} entries · {narrowsWithinAccount ? 'Net' : 'Balance'}{' '}
           <b className={overallBalance >= 0 ? 'positive' : ''}>{money(overallBalance)}</b>
         </span>
         <div className="filtertools">
@@ -472,7 +475,7 @@ export function Activity() {
             key={t.id}
             t={t}
             balance={balanceById[t.id]}
-            balanceLabel={hasSubsetFilter ? 'Net' : 'Bal'}
+            balanceLabel={narrowsWithinAccount ? 'Net' : 'Bal'}
             onClick={() => open({ kind: 'detail', id: t.id })}
             onOpenRef={(refId) => open({ kind: 'detail', id: refId })}
           />
