@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { api } from './api';
 import { useStore } from './store';
 import { money, fmtDateTime, toInput, dtLocalNow, toIso } from './lib';
@@ -170,8 +170,25 @@ function RuleForm({
   const [note, setNote] = useState(rule?.note || '');
   const [saving, setSaving] = useState(false);
   const [err, setErr] = useState('');
+  const [catOpen, setCatOpen] = useState(false);
 
   const ms = methods.filter((m) => m.account_id === accountId);
+  const cats = useMemo(
+    () => categories.filter((c) => c.kind === 'both' || c.kind === type),
+    [categories, type]
+  );
+  useEffect(() => {
+    if (categoryId && !cats.some((c) => c.id === categoryId)) setCategoryId('');
+  }, [type]); // eslint-disable-line react-hooks/exhaustive-deps
+  const roots = cats.filter((c) => !c.parent_id);
+  const selectedCategoryLabel = useMemo(() => {
+    if (!categoryId) return '';
+    const c = categories.find((x) => x.id === categoryId);
+    if (!c) return '';
+    if (!c.parent_id) return c.name;
+    const parent = categories.find((x) => x.id === c.parent_id);
+    return parent ? `${parent.name} › ${c.name}` : c.name;
+  }, [categoryId, categories]);
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -251,17 +268,62 @@ function RuleForm({
                 ))}
               </select>
             </Field>
-            <Field label="Category">
-              <select value={categoryId} onChange={(e) => setCategoryId(e.target.value)}>
-                <option value="">None</option>
-                {categories.map((c) => (
-                  <option key={c.id} value={c.id}>
-                    {c.parent_id ? '↳ ' : ''}
-                    {c.name}
-                  </option>
-                ))}
-              </select>
-            </Field>
+            <div className="field relative">
+              <span>Category</span>
+              <button type="button" className="picker" onClick={() => setCatOpen(!catOpen)}>
+                <span className={selectedCategoryLabel ? '' : 'placeholder'}>
+                  {selectedCategoryLabel || 'None'}
+                </span>
+                <span>⌄</span>
+              </button>
+              {catOpen && (
+                <div className="pickerpanel">
+                  <div className="catsection">
+                    <button
+                      type="button"
+                      className={`catpick rootpick${categoryId ? '' : ' selected'}`}
+                      onClick={() => {
+                        setCategoryId('');
+                        setCatOpen(false);
+                      }}
+                    >
+                      <b>None</b>
+                    </button>
+                  </div>
+                  {roots.map((r) => (
+                    <div className="catsection" key={r.id}>
+                      <button
+                        type="button"
+                        className={`catpick rootpick${categoryId === r.id ? ' selected' : ''}`}
+                        onClick={() => {
+                          setCategoryId(r.id);
+                          setCatOpen(false);
+                        }}
+                      >
+                        <b>{r.name}</b>
+                        <span>{r.kind}</span>
+                      </button>
+                      {cats
+                        .filter((c) => c.parent_id === r.id)
+                        .map((c) => (
+                          <button
+                            type="button"
+                            className={`catpick childpick${categoryId === c.id ? ' selected' : ''}`}
+                            key={c.id}
+                            onClick={() => {
+                              setCategoryId(c.id);
+                              setCatOpen(false);
+                            }}
+                          >
+                            {c.name}
+                          </button>
+                        ))}
+                    </div>
+                  ))}
+                  {!roots.length && <p>No categories available.</p>}
+                </div>
+              )}
+            </div>
             <Field label="Amount">
               <div className="inprefix">
                 ₹
