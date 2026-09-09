@@ -4,14 +4,19 @@ export function Overlay({
   children,
   onClose,
   wide,
+  centered,
 }: {
   children: React.ReactNode;
   onClose: () => void;
   wide?: boolean;
+  centered?: boolean;
 }) {
   return (
-    <div className="overlay" onMouseDown={onClose}>
-      <div className={`modal${wide ? ' witemod' : ''}`} onMouseDown={(e) => e.stopPropagation()}>
+    <div className={`overlay${centered ? ' centered' : ''}`} onMouseDown={onClose}>
+      <div
+        className={`modal${wide ? ' witemod' : ''}${centered ? ' centered' : ''}`}
+        onMouseDown={(e) => e.stopPropagation()}
+      >
         {children}
       </div>
     </div>
@@ -143,7 +148,7 @@ export function FieldsModal({
   };
 
   return (
-    <Overlay onClose={close}>
+    <Overlay onClose={close} centered>
       <ModalHead title={title} onClose={close} />
       {err && <Err msg={err} />}
       <form onSubmit={submit}>

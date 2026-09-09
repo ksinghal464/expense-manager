@@ -93,3 +93,16 @@ export function parseJson(v: string | null): Record<string, unknown> | null {
     return null;
   }
 }
+
+/** Maximum attachment size accepted client-side (keeps the base64 payload under D1/worker body caps). */
+export const MAX_ATTACHMENT_BYTES = 1_400_000;
+
+/** Read a File as a base64 data: URL (used for image/file attachments stored inline). */
+export function readFileAsDataUrl(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const r = new FileReader();
+    r.onload = () => resolve(String(r.result || ''));
+    r.onerror = () => reject(new Error('Unable to read file'));
+    r.readAsDataURL(file);
+  });
+}

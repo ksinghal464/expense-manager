@@ -1,7 +1,17 @@
 import { useEffect, useMemo, useState } from 'react';
-import { api, TxDetail } from './api';
+import { api, TxDetail, AttachmentRow } from './api';
 import { useStore } from './store';
-import { money, dtLocalNow, toLocalInput, toIso, toInput, uid, parse } from './lib';
+import {
+  money,
+  dtLocalNow,
+  toLocalInput,
+  toIso,
+  toInput,
+  uid,
+  parse,
+  readFileAsDataUrl,
+  MAX_ATTACHMENT_BYTES,
+} from './lib';
 import { Field, SaveButton, Err } from './ui';
 import type {
   Category,
@@ -13,7 +23,14 @@ import type {
   SplitRow,
 } from '../shared/types';
 
-type SplitDraft = { key: string; categoryId: string; amount: string; description: string };
+type SplitDraft = {
+  key: string;
+  categoryId: string;
+  amount: string;
+  description: string;
+  occurredAt: string;
+};
+type StagedFile = { key: string; file: File; dataUrl: string };
 
 export function TxForm({ id, title, close }: { id?: string; title: string; close: () => void }) {
   const {
@@ -48,6 +65,9 @@ export function TxForm({ id, title, close }: { id?: string; title: string; close
   const [showAdvanced, setShowAdvanced] = useState(false);
   const [saving, setSaving] = useState(false);
   const [err, setErr] = useState('');
+  const [existingAttach, setExistingAttach] = useState<AttachmentRow[]>([]);
+  const [staged, setStaged] = useState<StagedFile[]>([]);
+  const [attachBusy, setAttachBusy] = useState(false);
 
   useEffect(() => {
     if (!id) {
@@ -75,12 +95,17 @@ export function TxForm({ id, title, close }: { id?: string; title: string; close
             categoryId: s.category_id || '',
             amount: toInput(s.amount_minor),
             description: s.description || '',
+            occurredAt: toLocalInput(s.occurred_at || t.occurred_at),
           }))
         );
         setShowAdvanced(true);
       })
       .catch((e) => setErr(e instanceof Error ? e.message : 'Unable to load'))
       .finally(() => setLoading(false));
+    api
+      .attachments(id)
+      .then(setExistingAttach)
+      .catch(() => setExistingAttach([]));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [id]);
 
@@ -143,15 +168,37 @@ export function TxForm({ id, title, close }: { id?: string; title: string; close
           amount: (parse(s.amount) || 0) / 100,
           description: s.description,
           note: '',
+          occurredAt: s.occurredAt !== date ? toIso(s.occurredAt) : undefined,
         }));
         if (Math.abs(splitTotal - (minor || 0)) > 1)
           throw new Error('Split amounts must sum to the total.');
         payload.isSplitParent = true;
         payload.splits = parts;
+      } else if (id) {
+        // Editing down to <2 parts must still clear any existing splits server-side.
+        payload.splits = [];
       }
 
+      let txId = id;
       if (id) await api.updateTransaction(id, payload);
-      else await api.createTransaction(payload);
+      else {
+        const created = await api.createTransaction(payload);
+        txId = created.id;
+      }
+
+      if (txId && staged.length) {
+        for (const s of staged) {
+          await api.createAttachment({
+            transactionId: txId,
+            kind: s.file.type.startsWith('image/') ? 'image' : 'file',
+            url: s.dataUrl,
+            fileName: s.file.name,
+            mimeType: s.file.type || 'application/octet-stream',
+            sizeBytes: s.file.size,
+          });
+        }
+      }
+
       toast(id ? 'Transaction updated' : 'Transaction saved');
       await refresh();
       close();
@@ -159,6 +206,23 @@ export function TxForm({ id, title, close }: { id?: string; title: string; close
       setErr(ex instanceof Error ? ex.message : 'Unable to save');
     } finally {
       setSaving(false);
+    }
+  };
+
+  const onStageFile = async (f: File | null) => {
+    if (!f) return;
+    if (f.size > MAX_ATTACHMENT_BYTES) {
+      setErr('File is too large (max 1.3 MB). Try a smaller photo or a compressed scan.');
+      return;
+    }
+    setAttachBusy(true);
+    try {
+      const dataUrl = await readFileAsDataUrl(f);
+      setStaged((cur) => [...cur, { key: uid(), file: f, dataUrl }]);
+    } catch {
+      setErr('Unable to read that file.');
+    } finally {
+      setAttachBusy(false);
     }
   };
 
@@ -407,11 +471,17 @@ export function TxForm({ id, title, close }: { id?: string; title: string; close
                     onChange={(e) => updateSplit(s.key, { categoryId: e.target.value })}
                   >
                     <option value="">Category</option>
-                    {cats.map((c) => (
-                      <option key={c.id} value={c.id}>
-                        {c.parent_id ? '↳ ' : ''}
-                        {c.name}
-                      </option>
+                    {roots.map((r) => (
+                      <optgroup key={r.id} label={r.name}>
+                        <option value={r.id}>{r.name} (general)</option>
+                        {cats
+                          .filter((c) => c.parent_id === r.id)
+                          .map((c) => (
+                            <option key={c.id} value={c.id}>
+                              {c.name}
+                            </option>
+                          ))}
+                      </optgroup>
                     ))}
                   </select>
                   <input
@@ -425,6 +495,13 @@ export function TxForm({ id, title, close }: { id?: string; title: string; close
                     value={s.description}
                     onChange={(e) => updateSplit(s.key, { description: e.target.value })}
                     placeholder="Description"
+                  />
+                  <input
+                    type="datetime-local"
+                    className="splitdate"
+                    value={s.occurredAt}
+                    onChange={(e) => updateSplit(s.key, { occurredAt: e.target.value })}
+                    title="Date for this split part (defaults to the transaction date)"
                   />
                   <button
                     type="button"
@@ -441,7 +518,7 @@ export function TxForm({ id, title, close }: { id?: string; title: string; close
                 onClick={() =>
                   setSplits([
                     ...splits,
-                    { key: uid(), categoryId: '', amount: '', description: '' },
+                    { key: uid(), categoryId: '', amount: '', description: '', occurredAt: date },
                   ])
                 }
               >
@@ -454,6 +531,69 @@ export function TxForm({ id, title, close }: { id?: string; title: string; close
                   Total {money(splitTotal)} {hasSplits ? `/ ${money(parse(amount) || 0)}` : ''}
                 </div>
               )}
+            </div>
+
+            <div className="mini">
+              <h4>Attachments</h4>
+              {existingAttach.map((a) => (
+                <div className="attachrow" key={a.id}>
+                  {a.kind === 'image' ? (
+                    <a href={a.url} target="_blank" rel="noreferrer" className="attachthumb">
+                      <img src={a.url} alt={a.file_name} />
+                    </a>
+                  ) : (
+                    <span className="attachkind">📄</span>
+                  )}
+                  <a href={a.url} target="_blank" rel="noreferrer" download={a.file_name}>
+                    {a.file_name || 'Attachment'}
+                  </a>
+                  <button
+                    type="button"
+                    className="outline"
+                    onClick={() =>
+                      api
+                        .deleteAttachment(a.id)
+                        .then(() => setExistingAttach((cur) => cur.filter((x) => x.id !== a.id)))
+                    }
+                  >
+                    Remove
+                  </button>
+                </div>
+              ))}
+              {staged.map((s) => (
+                <div className="attachrow" key={s.key}>
+                  {s.file.type.startsWith('image/') ? (
+                    <span className="attachthumb">
+                      <img src={s.dataUrl} alt={s.file.name} />
+                    </span>
+                  ) : (
+                    <span className="attachkind">📄</span>
+                  )}
+                  <span>{s.file.name} (pending save)</span>
+                  <button
+                    type="button"
+                    className="outline"
+                    onClick={() => setStaged((cur) => cur.filter((x) => x.key !== s.key))}
+                  >
+                    Remove
+                  </button>
+                </div>
+              ))}
+              <div className="attachform">
+                <label className="outline attachpick">
+                  {attachBusy ? 'Reading…' : '＋ Add photo / file'}
+                  <input
+                    type="file"
+                    accept="image/*,application/pdf"
+                    disabled={attachBusy}
+                    onChange={(e) => {
+                      const f = e.target.files?.[0] || null;
+                      e.target.value = '';
+                      void onStageFile(f);
+                    }}
+                  />
+                </label>
+              </div>
             </div>
           </div>
         )}

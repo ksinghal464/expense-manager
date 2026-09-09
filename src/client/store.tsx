@@ -11,7 +11,7 @@ import type {
   TxView,
 } from '../shared/types';
 
-export type Page = 'dashboard' | 'activity' | 'recurring' | 'notes' | 'manage';
+export type Page = 'dashboard' | 'activity' | 'recurring' | 'manage';
 
 export type Modal =
   | { kind: 'tx' }

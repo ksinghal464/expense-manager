@@ -242,9 +242,13 @@ input[type='file'] {
 }
 .splitrow {
   display: grid;
-  grid-template-columns: 26px 1.4fr 1fr 1.4fr 34px;
+  grid-template-columns: 26px 1.3fr 0.8fr 1.1fr 1.2fr 34px;
   gap: 8px;
   align-items: center;
+}
+.splitrow .splitdate {
+  font-size: 12px;
+  padding: 9px 6px;
 }
 .splitidx {
   width: 26px;
@@ -357,6 +361,21 @@ input[type='file'] {
   border: 1px solid #eef2f6;
   border-radius: 10px;
 }
+.attachthumb {
+  flex: none;
+  width: 40px;
+  height: 40px;
+  border-radius: 8px;
+  overflow: hidden;
+  display: block;
+  background: #eef2f6;
+}
+.attachthumb img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
 .attachkind {
   font-size: 16px;
 }
@@ -367,66 +386,20 @@ input[type='file'] {
   font-size: 13px;
 }
 .attachform {
-  display: grid;
-  grid-template-columns: 110px 1fr 130px auto;
-  gap: 8px;
   margin-top: 4px;
+}
+.attachpick {
+  display: inline-flex;
   align-items: center;
+  gap: 6px;
+  cursor: pointer;
 }
-.noteform {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 8px;
-  margin-top: 4px;
-  align-items: end;
-}
-.attachform select,
-.attachform input,
-.noteform input {
-  border: 1px solid #d8e0e9;
-  background: #fff;
-  border-radius: 10px;
-  padding: 10px;
-  outline: 0;
-  font-size: 13px;
-}
-
-/* --- notes rows --- */
-.noterow {
-  display: flex;
-  align-items: flex-start;
-  gap: 10px;
-  padding: 9px 0;
-}
-.notedone {
-  width: 22px;
-  height: 22px;
-  flex: none;
-  border: 1px solid #cfd8e3;
-  border-radius: 50%;
-  background: #fff;
-  color: #9aa6b6;
-  font-size: 12px;
-  margin-top: 2px;
-}
-.noterow .notemain,
-.noterow > div {
-  flex: 1;
-  min-width: 0;
-}
-.noterow strong {
-  display: block;
-}
-.noterow p {
-  margin: 2px 0 0;
-  color: #5c6b80;
-  font-size: 13px;
-}
-.noterow small {
-  display: block;
-  color: #9aa6b6;
-  font-size: 11px;
-  margin-top: 3px;
+.attachpick input[type='file'] {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  opacity: 0;
+  overflow: hidden;
 }
 
 /* --- recurring rows --- */
@@ -475,21 +448,40 @@ input[type='file'] {
   background: #fbfcfd;
   border-style: dashed;
 }
-.catlist .catrow > div strong {
-  display: block;
+/* Explicit, position-independent alignment: the info block always grows,
+   the dot/branch glyphs and action buttons never do (fixes rows where the
+   dot used to stretch because of a fragile CSS selector). */
+.catlist .catrow .catdot,
+.catlist .catrow .branch {
+  flex: none !important;
 }
-.catlist .catrow > div span {
+.catlist .catrow .catinfo {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.catlist .catrow .catinfo strong,
+.catlist .catrow .catinfo span {
   display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.catlist .catrow .catinfo span {
   color: #7b8797;
   font-size: 12px;
   margin-top: 2px;
 }
-.catlist .catrow .outline {
-  margin-left: auto;
+.catlist .catrow .catactions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: none;
 }
 .catlist .branch {
   color: #b6c0cc;
   font-size: 14px;
+  width: 16px;
+  text-align: center;
 }
 .catdot.small {
   width: 28px;
@@ -580,12 +572,33 @@ input[type='file'] {
   width: min(860px, 100%);
 }
 
+/* --- centered modal (account/category/payment method/payee/tag dialogs) --- */
+.overlay.centered {
+  align-items: center;
+  padding: 20px;
+}
+.modal.centered {
+  border-radius: 22px;
+  max-height: 88vh;
+  width: min(480px, 100%);
+  box-shadow: 0 24px 60px #17203333;
+}
+@media (max-width: 650px) {
+  .overlay.centered {
+    padding: 12px;
+  }
+  .modal.centered {
+    width: 100%;
+  }
+}
+
 /* --- responsive --- */
 @media (max-width: 650px) {
   .splitrow {
-    grid-template-columns: 26px 1fr 34px;
+    grid-template-columns: 1fr 1fr;
   }
-  .splitrow input:last-of-type {
+  .splitrow select,
+  .splitrow input {
     grid-column: 1 / -1;
   }
   .attachform {
@@ -593,9 +606,6 @@ input[type='file'] {
   }
   .attachform select {
     grid-column: 1 / -1;
-  }
-  .noteform {
-    grid-template-columns: 1fr;
   }
   .recurringrow {
     flex-wrap: wrap;

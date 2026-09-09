@@ -262,6 +262,7 @@ async function createTransaction(env: Env, request: Request): Promise<Response> 
         amount: amt,
         description: str(s, 'description'),
         note: str(s, 'note'),
+        occurredAt: optStr(s, 'occurredAt') ? toIso(s.occurredAt) : occurredAt,
       };
     });
     for (const s of prepared)
@@ -293,8 +294,8 @@ async function createTransaction(env: Env, request: Request): Promise<Response> 
     await env.DB.batch(
       prepared.map((s) =>
         env.DB.prepare(
-          'INSERT INTO transaction_splits (id,transaction_id,category_id,amount_minor,description,note,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?)'
-        ).bind(s.id, txId, s.categoryId, s.amount, s.description, s.note, at, at)
+          'INSERT INTO transaction_splits (id,transaction_id,category_id,amount_minor,description,note,occurred_at,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?)'
+        ).bind(s.id, txId, s.categoryId, s.amount, s.description, s.note, s.occurredAt, at, at)
       )
     );
   } else {
@@ -441,8 +442,17 @@ async function updateTransaction(env: Env, request: Request, txId: string): Prom
     .run();
 
   // replace splits if provided
+  let splitsBefore: Row[] | null = null;
+  let splitsAfter: Row[] | null = null;
   if (Array.isArray(b['splits'])) {
     const splitsRaw = b['splits'] as any[];
+    const oldSplits = await env.DB.prepare(
+      `SELECT s.*, c.name AS category_name FROM transaction_splits s LEFT JOIN categories c ON c.id=s.category_id
+       WHERE s.transaction_id=? AND s.deleted_at IS NULL ORDER BY s.created_at`
+    )
+      .bind(txId)
+      .all<Row>();
+    splitsBefore = oldSplits.results;
     await env.DB.prepare('DELETE FROM transaction_splits WHERE transaction_id=?').bind(txId).run();
     let isSplitParent = 0;
     if (splitsRaw.length >= 2) {
@@ -457,6 +467,7 @@ async function updateTransaction(env: Env, request: Request, txId: string): Prom
           amount: amt,
           description: str(s, 'description'),
           note: str(s, 'note'),
+          occurredAt: optStr(s, 'occurredAt') ? toIso(s.occurredAt) : occurredAt,
         };
       });
       if (Math.abs(sum - amountMinor) > 1)
@@ -464,11 +475,26 @@ async function updateTransaction(env: Env, request: Request, txId: string): Prom
       await env.DB.batch(
         prepared.map((s) =>
           env.DB.prepare(
-            'INSERT INTO transaction_splits (id,transaction_id,category_id,amount_minor,description,note,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?)'
-          ).bind(s.id, txId, s.categoryId, s.amount, s.description, s.note, at, at)
+            'INSERT INTO transaction_splits (id,transaction_id,category_id,amount_minor,description,note,occurred_at,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?)'
+          ).bind(s.id, txId, s.categoryId, s.amount, s.description, s.note, s.occurredAt, at, at)
         )
       );
       isSplitParent = 1;
+      const catNames = new Map(
+        (await env.DB.prepare('SELECT id,name FROM categories').all<Row>()).results.map((c) => [
+          c.id,
+          c.name,
+        ])
+      );
+      splitsAfter = prepared.map((s) => ({
+        category_id: s.categoryId,
+        category_name: s.categoryId ? catNames.get(s.categoryId) || null : null,
+        amount_minor: s.amount,
+        description: s.description,
+        occurred_at: s.occurredAt,
+      }));
+    } else {
+      splitsAfter = [];
     }
     await env.DB.prepare('UPDATE transactions SET is_split_parent=? WHERE id=?')
       .bind(isSplitParent, txId)
@@ -513,10 +539,12 @@ async function updateTransaction(env: Env, request: Request, txId: string): Prom
         .run();
   }
 
-  const after = await env.DB.prepare('SELECT * FROM transactions WHERE id=?')
+  const after: Row = (await env.DB.prepare('SELECT * FROM transactions WHERE id=?')
     .bind(txId)
-    .first<Row>();
-  await audit(env, 'transaction', txId, 'update', before, after);
+    .first<Row>())!;
+  const auditBefore: Row = splitsBefore ? { ...before, splits_summary: splitsBefore } : before;
+  const auditAfter: Row = splitsAfter ? { ...after, splits_summary: splitsAfter } : after;
+  await audit(env, 'transaction', txId, 'update', auditBefore, auditAfter);
   return json(await txDetail(env, txId));
 }
 
@@ -823,88 +851,6 @@ async function softDelete(
   return json({ ok: true });
 }
 
-// ---------------- notes ----------------
-async function listNotes(env: Env, url: URL): Promise<Response> {
-  const transactionId = url.searchParams.get('transactionId');
-  const done = url.searchParams.get('done');
-  const clauses = ['n.deleted_at IS NULL'];
-  const params: unknown[] = [];
-  if (transactionId) {
-    clauses.push('n.transaction_id=?');
-    params.push(transactionId);
-  }
-  if (done === '0' || done === '1') {
-    clauses.push('n.is_done=?');
-    params.push(Number(done));
-  }
-  const r = await env.DB.prepare(
-    `SELECT * FROM notes n WHERE ${clauses.join(' AND ')} ORDER BY COALESCE(n.reminder_at, n.created_at) DESC LIMIT 500`
-  )
-    .bind(...params)
-    .all<Row>();
-  return json(r.results);
-}
-
-async function createNote(env: Env, request: Request): Promise<Response> {
-  const b = await readJson(request);
-  const at = now();
-  const transactionId = optStr(b, 'transactionId');
-  if (transactionId && !(await exists(env, 'transactions', transactionId)))
-    throw new HttpError(400, 'Transaction not found');
-  const title = str(b, 'title');
-  const content = str(b, 'content');
-  const reminderAt = optStr(b, 'reminderAt') ? toIso(b['reminderAt']) : null;
-  const n = {
-    id: id(),
-    transaction_id: transactionId,
-    title,
-    content,
-    reminder_at: reminderAt,
-    is_done: 0,
-    created_at: at,
-    updated_at: at,
-    deleted_at: null,
-  };
-  await env.DB.prepare(
-    'INSERT INTO notes (id,transaction_id,title,content,reminder_at,is_done,created_at,updated_at) VALUES (?,?,?,?,?,0,?,?)'
-  )
-    .bind(n.id, n.transaction_id, title, content, reminderAt, at, at)
-    .run();
-  await audit(env, 'note', n.id, 'create', null, n);
-  return json(n, { status: 201 });
-}
-
-async function updateNote(env: Env, request: Request, idVal: string): Promise<Response> {
-  const before = await getEntity(env, 'notes', idVal);
-  if (!before) throw new HttpError(404, 'Note not found');
-  const b = await readJson(request);
-  const at = now();
-  const title = b['title'] !== undefined ? String(b['title']) : before.title;
-  const content = b['content'] !== undefined ? String(b['content']) : before.content;
-  const reminderAt =
-    b['reminderAt'] === null
-      ? null
-      : b['reminderAt'] !== undefined
-        ? toIso(b['reminderAt'])
-        : before.reminder_at;
-  const isDone = b['isDone'] !== undefined ? (b['isDone'] ? 1 : 0) : before.is_done;
-  const updated = {
-    ...before,
-    title,
-    content,
-    reminder_at: reminderAt,
-    is_done: isDone,
-    updated_at: at,
-  };
-  await env.DB.prepare(
-    'UPDATE notes SET title=?,content=?,reminder_at=?,is_done=?,updated_at=? WHERE id=?'
-  )
-    .bind(title, content, reminderAt, isDone, at, idVal)
-    .run();
-  await audit(env, 'note', idVal, 'update', before, updated);
-  return json(updated);
-}
-
 // ---------------- attachments ----------------
 function mapAttachment(r: Row) {
   return { ...r, kind: r.provider, url: r.external_file_id };
@@ -927,16 +873,17 @@ async function listAttachments(env: Env, url: URL): Promise<Response> {
 }
 
 async function createAttachment(env: Env, request: Request): Promise<Response> {
-  const b = await readJson(request);
+  const b = await readJson(request, 3_000_000);
   const at = now();
   const transactionId = str(b, 'transactionId');
   if (!transactionId || !(await exists(env, 'transactions', transactionId)))
     throw new HttpError(400, 'Valid transactionId is required');
-  const kind = b['kind'] === 'image' ? 'image' : 'link';
+  const kind = b['kind'] === 'image' ? 'image' : 'file';
   const url = str(b, 'url');
   if (!url) throw new HttpError(400, 'url is required');
   const fileName = str(b, 'fileName');
-  const mimeType = str(b, 'mimeType') || (kind === 'image' ? 'image/jpeg' : 'text/html');
+  const mimeType =
+    str(b, 'mimeType') || (kind === 'image' ? 'image/jpeg' : 'application/octet-stream');
   const sizeBytes =
     b['sizeBytes'] !== undefined && b['sizeBytes'] !== null ? asIntSafe(b['sizeBytes']) : null;
   const a = {
@@ -1467,17 +1414,6 @@ export async function route(request: Request, url: URL, env: Env): Promise<Respo
     }
     if (m === 'DELETE' && seg[2])
       return res(await softDelete(env, spec.table, spec.entity, seg[2]));
-  }
-
-  // notes
-  if (seg[1] === 'notes') {
-    if (m === 'GET' && !seg[2]) return res(await listNotes(env, url));
-    if (m === 'POST' && !seg[2]) return res(await createNote(env, request));
-    if (seg[2]) {
-      if ((m === 'PUT' || m === 'PATCH') && !seg[3])
-        return res(await updateNote(env, request, seg[2]));
-      if (m === 'DELETE' && !seg[3]) return res(await softDelete(env, 'notes', 'note', seg[2]));
-    }
   }
 
   // attachments

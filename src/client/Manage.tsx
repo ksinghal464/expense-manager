@@ -213,30 +213,32 @@ function CategoriesTab() {
                 <div className="catdot">
                   {r.kind === 'income' ? '↗' : r.kind === 'expense' ? '↘' : '↕'}
                 </div>
-                <div>
+                <div className="catinfo">
                   <strong>{r.name}</strong>
                   <span>
                     {kindLabel} · {children.length} subcategor{children.length === 1 ? 'y' : 'ies'}
                   </span>
                 </div>
-                <button className="outline" onClick={() => setEditing(r)}>
-                  Edit
-                </button>
-                <DelBtn
-                  onDel={async () => {
-                    await api.deleteCategory(r.id);
-                    await refresh();
-                    toast('Category deleted');
-                  }}
-                />
+                <div className="catactions">
+                  <button className="outline" onClick={() => setEditing(r)}>
+                    Edit
+                  </button>
+                  <DelBtn
+                    onDel={async () => {
+                      await api.deleteCategory(r.id);
+                      await refresh();
+                      toast('Category deleted');
+                    }}
+                  />
+                </div>
               </div>
               {children.map((c) => (
                 <div className="catrow child" key={c.id}>
-                  <div className="branch">└</div>
+                  <div className="branch">↳</div>
                   <div className="catdot small">
                     {c.kind === 'income' ? '↗' : c.kind === 'expense' ? '↘' : '↕'}
                   </div>
-                  <div>
+                  <div className="catinfo">
                     <strong>{c.name}</strong>
                     <span>
                       {c.kind === 'both'
@@ -246,16 +248,18 @@ function CategoriesTab() {
                           : 'Expense'}
                     </span>
                   </div>
-                  <button className="outline" onClick={() => setEditing(c)}>
-                    Edit
-                  </button>
-                  <DelBtn
-                    onDel={async () => {
-                      await api.deleteCategory(c.id);
-                      await refresh();
-                      toast('Category deleted');
-                    }}
-                  />
+                  <div className="catactions">
+                    <button className="outline" onClick={() => setEditing(c)}>
+                      Edit
+                    </button>
+                    <DelBtn
+                      onDel={async () => {
+                        await api.deleteCategory(c.id);
+                        await refresh();
+                        toast('Category deleted');
+                      }}
+                    />
+                  </div>
                 </div>
               ))}
             </div>

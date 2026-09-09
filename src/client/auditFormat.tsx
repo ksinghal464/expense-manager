@@ -26,6 +26,7 @@ const FIELD_LABELS: Record<string, string> = {
   last_generated_at: 'Last generated',
   reminder_at: 'Reminder',
   is_done: 'Done',
+  splits_summary: 'Splits',
 };
 
 /** Fields never shown in a diff — internal bookkeeping only. */
@@ -72,6 +73,22 @@ function fieldLabel(key: string): string {
   return FIELD_LABELS[key] || key.replace(/_id$/, '').replace(/_/g, ' ');
 }
 
+function formatSplits(value: unknown, l: Lookups): string {
+  if (!Array.isArray(value) || !value.length) return 'No splits (single category)';
+  return value
+    .map((s) => {
+      const catName = s?.category_id
+        ? l.categories.find((c) => c.id === s.category_id)?.name ||
+          s.category_name ||
+          'Uncategorized'
+        : 'Uncategorized';
+      const amt = money(Number(s?.amount_minor) || 0);
+      const desc = s?.description ? ` (${s.description})` : '';
+      return `${catName} ${amt}${desc}`;
+    })
+    .join(', ');
+}
+
 function resolveRef(
   kind: 'account' | 'category' | 'method' | 'payee',
   id: string,
@@ -85,6 +102,7 @@ function resolveRef(
 }
 
 function formatValue(key: string, value: unknown, l: Lookups): string {
+  if (key === 'splits_summary') return formatSplits(value, l);
   if (value == null || value === '') return '—';
   if (MONEY_FIELDS.has(key)) return money(Number(value));
   if (DATE_FIELDS.has(key)) return fmtDateTime(String(value));

@@ -37,13 +37,27 @@ export async function buildDashboard(env: Env): Promise<Dashboard> {
     range(week),
     range(month),
     range(ytd),
+    // Category breakdown must use each split's own category for split
+    // transactions (the parent row's category is not meaningful once it has
+    // been split across several categories), and the transaction's own
+    // category otherwise.
     env.DB.prepare(
-      `SELECT COALESCE(c.name, 'Uncategorized') AS name, SUM(t.amount_minor) AS total
-       FROM transactions t LEFT JOIN categories c ON c.id = t.category_id
-       WHERE t.deleted_at IS NULL AND t.transaction_type='expense' AND t.occurred_at >= ?
-       GROUP BY COALESCE(c.id, 0) ORDER BY total DESC`
+      `SELECT name, SUM(total) AS total FROM (
+         SELECT COALESCE(c.name, 'Uncategorized') AS name, t.amount_minor AS total
+         FROM transactions t LEFT JOIN categories c ON c.id = t.category_id
+         WHERE t.deleted_at IS NULL AND t.transaction_type='expense' AND t.is_split_parent=0
+           AND t.occurred_at >= ?
+         UNION ALL
+         SELECT COALESCE(c.name, 'Uncategorized') AS name, s.amount_minor AS total
+         FROM transaction_splits s
+         JOIN transactions t ON t.id = s.transaction_id
+         LEFT JOIN categories c ON c.id = s.category_id
+         WHERE t.deleted_at IS NULL AND s.deleted_at IS NULL AND t.transaction_type='expense'
+           AND t.is_split_parent=1 AND t.occurred_at >= ?
+       )
+       GROUP BY name ORDER BY total DESC`
     )
-      .bind(month)
+      .bind(month, month)
       .all<Row>(),
     env.DB.prepare(
       `SELECT * FROM accounts WHERE deleted_at IS NULL AND is_active=1 ORDER BY name`

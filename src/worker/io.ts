@@ -587,6 +587,7 @@ const RESTORE_ORDER: [string, string[]][] = [
       'amount_minor',
       'description',
       'note',
+      'occurred_at',
       'created_at',
       'updated_at',
       'deleted_at',

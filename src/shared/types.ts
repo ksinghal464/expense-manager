@@ -95,19 +95,8 @@ export interface SplitRow {
   amount_minor: number;
   description: string;
   note: string;
+  occurred_at: string | null;
   category_name?: string | null;
-  created_at: string;
-  updated_at: string;
-  deleted_at: string | null;
-}
-
-export interface Note {
-  id: string;
-  transaction_id: string | null;
-  title: string;
-  content: string;
-  reminder_at: string | null;
-  is_done: number;
   created_at: string;
   updated_at: string;
   deleted_at: string | null;

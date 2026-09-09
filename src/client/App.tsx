@@ -3,7 +3,6 @@ import { Overlay, ModalHead } from './ui';
 import { Dashboard } from './Dashboard';
 import { Activity } from './Activity';
 import { Recurring } from './Recurring';
-import { Notes } from './Notes';
 import { Manage } from './Manage';
 import { TxForm } from './TxForm';
 import { TxDetail } from './TxDetail';
@@ -13,7 +12,6 @@ const NAV: [Page, string, string][] = [
   ['dashboard', '◙', 'Home'],
   ['activity', '≣', 'Activity'],
   ['recurring', '⟳', 'Recurring'],
-  ['notes', '✎', 'Notes'],
   ['manage', '⚙', 'Manage'],
 ];
 
@@ -50,7 +48,6 @@ function Shell() {
           {page === 'dashboard' && <Dashboard />}
           {page === 'activity' && <Activity />}
           {page === 'recurring' && <Recurring />}
-          {page === 'notes' && <Notes />}
           {page === 'manage' && <Manage />}
         </div>
       )}
