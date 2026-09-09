@@ -95,14 +95,19 @@ async function tagsFor(env: Env, txId: string): Promise<string[]> {
 async function tagsForMany(env: Env, txIds: string[]): Promise<Record<string, string[]>> {
   const map: Record<string, string[]> = {};
   if (!txIds.length) return map;
-  const ph = txIds.map(() => '?').join(',');
-  const r = await env.DB.prepare(
-    `SELECT tt.transaction_id AS tid, tg.name FROM transaction_tags tt JOIN tags tg ON tg.id=tt.tag_id
-     WHERE tt.transaction_id IN (${ph})`
-  )
-    .bind(...txIds)
-    .all<Row>();
-  for (const x of r.results) (map[x.tid] ||= []).push(x.name);
+  // Chunk to stay well under D1's per-statement bound-variable limit.
+  const CHUNK = 100;
+  for (let i = 0; i < txIds.length; i += CHUNK) {
+    const slice = txIds.slice(i, i + CHUNK);
+    const ph = slice.map(() => '?').join(',');
+    const r = await env.DB.prepare(
+      `SELECT tt.transaction_id AS tid, tg.name FROM transaction_tags tt JOIN tags tg ON tg.id=tt.tag_id
+       WHERE tt.transaction_id IN (${ph})`
+    )
+      .bind(...slice)
+      .all<Row>();
+    for (const x of r.results) (map[x.tid] ||= []).push(x.name);
+  }
   return map;
 }
 

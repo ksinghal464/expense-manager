@@ -100,7 +100,7 @@ export async function importCsv(
     if (!r) {
       const newId = id();
       await env.DB.prepare(
-        `INSERT INTO payment_methods (id,account_id,name,is_active,created_at,updated_at) VALUES (?,?,?,?,1,?)`
+        `INSERT INTO payment_methods (id,account_id,name,is_active,created_at,updated_at) VALUES (?,?,?,1,?,?)`
       )
         .bind(newId, accountId, n, at, at)
         .run();
