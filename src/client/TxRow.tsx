@@ -23,7 +23,7 @@ export function TxRow({
         {(t.description || t.payee_name || t.category_name || '?').charAt(0).toUpperCase()}
       </div>
       <div className="txmain">
-        <strong>{t.description || t.payee_name || '(No description)'}</strong>
+        <strong>{t.description || t.payee_name || ''}</strong>
         <span>
           {t.category_name || 'Uncategorized'}
           {t.payee_name ? ` · ${t.payee_name}` : ''}
