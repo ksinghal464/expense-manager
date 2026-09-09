@@ -389,7 +389,7 @@ function MethodsTab() {
               type: 'select',
               options: accountOptions,
               required: true,
-              defaultValue: editing?.account_id || accounts[0]?.id || '',
+              defaultValue: editing?.account_id || '',
             },
           ]}
           initial={editing ? { name: editing.name, accountId: editing.account_id } : undefined}

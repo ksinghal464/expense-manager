@@ -155,7 +155,7 @@ function RuleForm({
 }) {
   const [name, setName] = useState(rule?.name || '');
   const [type, setType] = useState<TxType>(rule?.transaction_type || 'expense');
-  const [accountId, setAccountId] = useState(rule?.account_id || accounts[0]?.id || '');
+  const [accountId, setAccountId] = useState(rule?.account_id || '');
   const [methodId, setMethodId] = useState(rule?.payment_method_id || '');
   const [categoryId, setCategoryId] = useState(rule?.category_id || '');
   const [amount, setAmount] = useState(rule ? toInput(rule.amount_minor) : '');
@@ -229,7 +229,10 @@ function RuleForm({
           />
           <div className="formgrid">
             <Field label="Account">
-              <select value={accountId} onChange={(e) => setAccountId(e.target.value)}>
+              <select required value={accountId} onChange={(e) => setAccountId(e.target.value)}>
+                <option value="" disabled>
+                  Select account
+                </option>
                 {accounts.map((a) => (
                   <option key={a.id} value={a.id}>
                     {a.name}

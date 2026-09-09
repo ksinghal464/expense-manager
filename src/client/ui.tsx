@@ -64,13 +64,15 @@ export function SaveButton({
   saving,
   label,
   onClick,
+  disabled,
 }: {
   saving: boolean;
   label: string;
   onClick?: () => void;
+  disabled?: boolean;
 }) {
   return (
-    <button type="submit" className="save" disabled={saving} onClick={onClick}>
+    <button type="submit" className="save" disabled={saving || disabled} onClick={onClick}>
       {saving ? 'Saving…' : label}
     </button>
   );
@@ -155,7 +157,16 @@ export function FieldsModal({
         {fields.map((f) => (
           <Field key={f.key} label={f.label}>
             {f.type === 'select' ? (
-              <select value={v[f.key]} onChange={(e) => setV({ ...v, [f.key]: e.target.value })}>
+              <select
+                required={f.required}
+                value={v[f.key]}
+                onChange={(e) => setV({ ...v, [f.key]: e.target.value })}
+              >
+                {!(f.options || []).some((o) => o.value === '') && (
+                  <option value="" disabled>
+                    {f.placeholder || `Select ${f.label.replace(/\s*\*$/, '').toLowerCase()}`}
+                  </option>
+                )}
                 {(f.options || []).map((o) => (
                   <option key={o.value} value={o.value}>
                     {o.label}

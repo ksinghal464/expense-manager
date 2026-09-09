@@ -106,7 +106,7 @@ export function MasterModal({ modal, close }: { modal: NonNullable<Modal>; close
             type: 'select',
             options: accountOptions,
             required: true,
-            defaultValue: item?.account_id || accounts[0]?.id || '',
+            defaultValue: item?.account_id || '',
           },
         ]}
         initial={item ? { name: item.name, accountId: item.account_id } : undefined}

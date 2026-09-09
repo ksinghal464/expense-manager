@@ -821,3 +821,48 @@ input[type='file'] {
   line-height: 1.5;
   margin: 4px 0 20px;
 }
+
+/* --- category picker (Add/Edit Expense): bold category, subcategories under it --- */
+.catsection {
+  border-bottom: 1px solid #eef2f6;
+  padding: 4px 0;
+}
+.catsection:last-child {
+  border-bottom: 0;
+}
+.catpick.rootpick {
+  padding-top: 10px;
+  padding-bottom: 10px;
+}
+.catpick.rootpick b {
+  font-size: 13px;
+  font-weight: 800;
+  color: #1d314a;
+}
+.catpick.childpick {
+  padding-left: 30px;
+  color: #4a586c;
+  font-size: 13px;
+  position: relative;
+}
+.catpick.childpick::before {
+  content: '↳';
+  position: absolute;
+  left: 12px;
+  color: #b6c0cc;
+}
+.catpick.selected {
+  background: #eef4fb;
+}
+.catpick.rootpick.selected b,
+.catpick.childpick.selected {
+  color: #1769d1;
+}
+
+/* --- split total mismatch warning --- */
+.splitwarn {
+  display: block;
+  margin-top: 4px;
+  font-size: 12px;
+  font-weight: 700;
+}

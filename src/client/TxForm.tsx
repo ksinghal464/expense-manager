@@ -70,10 +70,7 @@ export function TxForm({ id, title, close }: { id?: string; title: string; close
   const [attachBusy, setAttachBusy] = useState(false);
 
   useEffect(() => {
-    if (!id) {
-      setAccountId(accounts[0]?.id || '');
-      return;
-    }
+    if (!id) return;
     api
       .transaction(id)
       .then((t: TxDetail) => {
@@ -114,7 +111,9 @@ export function TxForm({ id, title, close }: { id?: string; title: string; close
     [methods, accountId]
   );
   useEffect(() => {
-    if (!accountMethods.some((m) => m.id === methodId)) setMethodId(accountMethods[0]?.id || '');
+    // Don't auto-pick a method; just clear it if it no longer belongs to the
+    // selected account (the user must always choose explicitly).
+    if (!accountMethods.some((m) => m.id === methodId)) setMethodId('');
   }, [accountId, accountMethods]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const cats = useMemo(
@@ -147,6 +146,7 @@ export function TxForm({ id, title, close }: { id?: string; title: string; close
 
   const splitTotal = splits.reduce((s, x) => s + (parse(x.amount) || 0), 0);
   const hasSplits = splits.length >= 2;
+  const splitMismatch = hasSplits && Math.abs(splitTotal - (parse(amount) || 0)) > 1;
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -158,6 +158,8 @@ export function TxForm({ id, title, close }: { id?: string; title: string; close
       if (!accountId) throw new Error('Select an account.');
       if (!methodId) throw new Error('Select a payment method (add one in Manage if none exist).');
       if (!categoryId) throw new Error('Select a category.');
+      if (splitMismatch)
+        throw new Error(`Splits must add up to ${money(minor)} (currently ${money(splitTotal)}).`);
       const payload: Record<string, unknown> = {
         type,
         accountId,
@@ -293,6 +295,9 @@ export function TxForm({ id, title, close }: { id?: string; title: string; close
         </Field>
         <Field label="Account *">
           <select required value={accountId} onChange={(e) => setAccountId(e.target.value)}>
+            <option value="" disabled>
+              Select account
+            </option>
             {accounts.map((a: Account) => (
               <option key={a.id} value={a.id}>
                 {a.name}
@@ -302,7 +307,13 @@ export function TxForm({ id, title, close }: { id?: string; title: string; close
         </Field>
         <Field label="Payment method *">
           <select required value={methodId} onChange={(e) => setMethodId(e.target.value)}>
-            {!accountMethods.length && <option value="">No methods — add one in Manage</option>}
+            <option value="" disabled>
+              {!accountId
+                ? 'Select an account first'
+                : accountMethods.length
+                  ? 'Select payment method'
+                  : 'No methods — add one in Manage'}
+            </option>
             {accountMethods.map((m: PaymentMethod) => (
               <option key={m.id} value={m.id}>
                 {m.name}
@@ -319,16 +330,16 @@ export function TxForm({ id, title, close }: { id?: string; title: string; close
           {catOpen && (
             <div className="pickerpanel">
               {roots.map((r) => (
-                <div key={r.id}>
+                <div className="catsection" key={r.id}>
                   <button
                     type="button"
-                    className="catpick rootpick"
+                    className={`catpick rootpick${categoryId === r.id ? ' selected' : ''}`}
                     onClick={() => {
                       setCategoryId(r.id);
                       setCatOpen(false);
                     }}
                   >
-                    {r.name}
+                    <b>{r.name}</b>
                     <span>{r.kind}</span>
                   </button>
                   {cats
@@ -336,14 +347,14 @@ export function TxForm({ id, title, close }: { id?: string; title: string; close
                     .map((c) => (
                       <button
                         type="button"
-                        className="catpick childpick"
+                        className={`catpick childpick${categoryId === c.id ? ' selected' : ''}`}
                         key={c.id}
                         onClick={() => {
                           setCategoryId(c.id);
                           setCatOpen(false);
                         }}
                       >
-                        ↳ {c.name}
+                        {c.name}
                       </button>
                     ))}
                 </div>
@@ -538,10 +549,13 @@ export function TxForm({ id, title, close }: { id?: string; title: string; close
                 ＋ Add split part
               </button>
               {splits.length > 0 && (
-                <div
-                  className={`splitsum${hasSplits && Math.abs(splitTotal - (parse(amount) || 0)) <= 1 ? ' ok' : ' bad'}`}
-                >
+                <div className={`splitsum${splitMismatch ? ' bad' : ' ok'}`}>
                   Total {money(splitTotal)} {hasSplits ? `/ ${money(parse(amount) || 0)}` : ''}
+                  {splitMismatch && (
+                    <span className="splitwarn">
+                      ⚠ Splits must add up to the transaction amount before you can save.
+                    </span>
+                  )}
                 </div>
               )}
             </div>
@@ -630,7 +644,11 @@ export function TxForm({ id, title, close }: { id?: string; title: string; close
         </button>
       </div>
 
-      <SaveButton saving={saving} label={id ? 'Save changes' : 'Save transaction'} />
+      <SaveButton
+        saving={saving}
+        disabled={splitMismatch}
+        label={id ? 'Save changes' : 'Save transaction'}
+      />
     </form>
   );
 
