@@ -1,5 +1,5 @@
 import { Env, HttpError, json, textBody, readJson, readBody, corsHeaders } from './http';
-import { now, id, audit, exists, getEntity, toIso, toMinorStrict, clampInt } from './db';
+import { now, id, audit, exists, getEntity, toIso, toMinorStrict, clampInt, INSERT_TX } from './db';
 import { buildDashboard, rangeStats, categoryBreakdown } from './aggregate';
 import { runRecurring, advanceDue } from './recurring';
 import { importCsv, exportCsv, exportJson, restoreBackup } from './io';
@@ -18,12 +18,6 @@ type Row = Record<string, any>;
 const TYPE_RE = /^(expense|income)$/;
 const STATUS_RE = /^(cleared|uncleared)$/;
 const FREQ_RE = /^(daily|weekly|monthly|yearly)$/;
-
-export const INSERT_TX = `INSERT INTO transactions
-  (id,account_id,payment_method_id,category_id,payee_id,transaction_type,amount_minor,occurred_at,
-   description,note,status,refunds_transaction_id,
-   parent_transaction_id,recurring_rule_id,is_split_parent,created_at,updated_at)
-   VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`;
 
 const TX_SELECT = `SELECT t.*, a.name AS account_name, c.name AS category_name, p.name AS payee_name,
   pm.name AS payment_method_name, parent.description AS refund_of_description,
@@ -1099,10 +1093,6 @@ async function generateOne(env: Env, idVal: string): Promise<Response> {
       rule.description || rule.name,
       rule.note || '',
       'cleared',
-      '',
-      0,
-      null,
-      '',
       null,
       null,
       rule.id,
@@ -1117,15 +1107,10 @@ async function generateOne(env: Env, idVal: string): Promise<Response> {
   )
     .bind(next, rule.next_due_at, at, idVal)
     .run();
-  await audit(
-    env,
-    'transaction',
-    txId,
-    'create',
-    null,
-    { recurring_rule_id: idVal, occurred_at: rule.next_due_at },
-    { recurring: true }
-  );
+  const createdTx = await env.DB.prepare('SELECT * FROM transactions WHERE id=?')
+    .bind(txId)
+    .first<Row>();
+  await audit(env, 'transaction', txId, 'create', null, createdTx, { recurring: true });
   const updated = await env.DB.prepare('SELECT * FROM recurring_rules WHERE id=?')
     .bind(idVal)
     .first<Row>();
@@ -1346,13 +1331,18 @@ export async function route(request: Request, url: URL, env: Env): Promise<Respo
     const from = url.searchParams.get('from');
     if (!from) throw new HttpError(400, '"from" is required');
     const to = url.searchParams.get('to');
-    return res(json(await rangeStats(env, toIso(from), to ? toIso(to) : null)));
+    const accountId = url.searchParams.get('accountId');
+    return res(json(await rangeStats(env, toIso(from), to ? toIso(to) : null, accountId)));
   }
   if (m === 'GET' && p === '/api/dashboard/categories') {
     const from = url.searchParams.get('from');
     if (!from) throw new HttpError(400, '"from" is required');
     const to = url.searchParams.get('to');
-    return res(json(await categoryBreakdown(env, toIso(from), to ? toIso(to) : null)));
+    const accountId = url.searchParams.get('accountId');
+    const type = url.searchParams.get('type') === 'income' ? 'income' : 'expense';
+    return res(
+      json(await categoryBreakdown(env, toIso(from), to ? toIso(to) : null, { accountId, type }))
+    );
   }
   if (m === 'GET' && p === '/api/audit') return res(await handleAudit(env, url));
 

@@ -5,16 +5,45 @@ import type { SearchOptions } from './api';
 import { useDebounce } from './lib';
 import { Empty } from './ui';
 import { TxRow } from './TxRow';
+import { istDateTimeToUTC, toISTDate } from '../shared/period';
+
+function toDateInput(iso: string): string {
+  return iso ? toISTDate(iso) : '';
+}
+function fromDateInput(dateStr: string): string {
+  return dateStr ? istDateTimeToUTC(dateStr) : '';
+}
+/** Exclusive upper bound: the ISO instant for the start of the day *after* dateStr. */
+function endOfDayIso(dateStr: string): string {
+  const d = new Date(istDateTimeToUTC(dateStr));
+  d.setUTCDate(d.getUTCDate() + 1);
+  return d.toISOString();
+}
 
 export function Activity() {
-  const { transactions, accounts, open, pendingActivityFilter, clearActivityFilter } = useStore();
+  const {
+    transactions,
+    accounts,
+    methods,
+    categories,
+    payees,
+    tags,
+    open,
+    pendingActivityFilter,
+    clearActivityFilter,
+  } = useStore();
   const [query, setQuery] = useState('');
   const [type, setType] = useState<'all' | 'expense' | 'income'>('all');
   const [accountId, setAccountId] = useState('');
   const [categoryId, setCategoryId] = useState<string | null | undefined>(undefined);
+  const [methodId, setMethodId] = useState('');
+  const [payeeId, setPayeeId] = useState('');
+  const [status, setStatus] = useState<'' | 'cleared' | 'uncleared'>('');
+  const [tag, setTag] = useState('');
   const [from, setFrom] = useState('');
   const [to, setTo] = useState<string | null>(null);
   const [filterLabel, setFilterLabel] = useState('');
+  const [showFilters, setShowFilters] = useState(false);
   const debounced = useDebounce(query, 180);
   const [options, setOptions] = useState<SearchOptions | null>(null);
 
@@ -27,9 +56,14 @@ export function Activity() {
     setType(f.type || 'all');
     setAccountId(f.accountId || '');
     setCategoryId(f.categoryId);
+    setMethodId(f.methodId || '');
+    setPayeeId(f.payeeId || '');
+    setStatus(f.status || '');
+    setTag(f.tag || '');
     setFrom(f.from || '');
     setTo(f.to ?? null);
     setFilterLabel(f.label || '');
+    setShowFilters(false);
     clearActivityFilter();
   }, [pendingActivityFilter, clearActivityFilter]);
 
@@ -67,10 +101,20 @@ export function Activity() {
     setType('all');
     setAccountId('');
     setCategoryId(undefined);
+    setMethodId('');
+    setPayeeId('');
+    setStatus('');
+    setTag('');
     setFrom('');
     setTo(null);
     setFilterLabel('');
   };
+
+  const accountMethods = useMemo(
+    () => (accountId ? methods.filter((m) => m.account_id === accountId) : methods),
+    [methods, accountId]
+  );
+  const roots = categories.filter((c) => !c.parent_id);
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
@@ -78,6 +122,10 @@ export function Activity() {
     if (type !== 'all') list = list.filter((t) => t.transaction_type === type);
     if (accountId) list = list.filter((t) => t.account_id === accountId);
     if (categoryId !== undefined) list = list.filter((t) => (t.category_id || null) === categoryId);
+    if (methodId) list = list.filter((t) => t.payment_method_id === methodId);
+    if (payeeId) list = list.filter((t) => t.payee_id === payeeId);
+    if (status) list = list.filter((t) => t.status === status);
+    if (tag) list = list.filter((t) => (t.tags || []).includes(tag));
     if (from) list = list.filter((t) => t.occurred_at >= from);
     if (to) list = list.filter((t) => t.occurred_at < to);
     if (!q) return list;
@@ -88,7 +136,7 @@ export function Activity() {
         .toLowerCase()
         .includes(q)
     );
-  }, [transactions, query, type, accountId, categoryId, from, to]);
+  }, [transactions, query, type, accountId, categoryId, methodId, payeeId, status, tag, from, to]);
 
   const groups: [string, string[]][] = options
     ? [
@@ -101,7 +149,17 @@ export function Activity() {
       ]
     : [];
 
-  const hasDrillFilter = Boolean(accountId || categoryId !== undefined || from || to);
+  const activeFilterCount = [
+    accountId,
+    categoryId !== undefined,
+    methodId,
+    payeeId,
+    status,
+    tag,
+    from,
+    to,
+  ].filter(Boolean).length;
+  const hasDrillFilter = Boolean(filterLabel && activeFilterCount);
 
   return (
     <main>
@@ -140,7 +198,7 @@ export function Activity() {
 
       {hasDrillFilter && (
         <div className="filterchip">
-          <span>Filtered: {filterLabel || 'custom view'}</span>
+          <span>Filtered: {filterLabel}</span>
           <button className="outline" onClick={clearAllFilters}>
             Clear filter
           </button>
@@ -149,20 +207,140 @@ export function Activity() {
 
       <div className="filterline">
         <span>{filtered.length} entries</span>
-        <div className="segmented">
-          {(
-            [
-              ['all', 'All'],
-              ['expense', 'Expense'],
-              ['income', 'Income'],
-            ] as const
-          ).map(([id, l]) => (
-            <button key={id} className={type === id ? 'selected' : ''} onClick={() => setType(id)}>
-              {l}
-            </button>
-          ))}
+        <div className="filtertools">
+          <div className="segmented">
+            {(
+              [
+                ['all', 'All'],
+                ['expense', 'Expense'],
+                ['income', 'Income'],
+              ] as const
+            ).map(([id, l]) => (
+              <button
+                key={id}
+                className={type === id ? 'selected' : ''}
+                onClick={() => setType(id)}
+              >
+                {l}
+              </button>
+            ))}
+          </div>
+          <button
+            className={`outline filtersbtn${activeFilterCount ? ' active' : ''}`}
+            onClick={() => setShowFilters((v) => !v)}
+          >
+            ⚙ Filters{activeFilterCount ? ` (${activeFilterCount})` : ''}
+          </button>
         </div>
       </div>
+
+      {showFilters && (
+        <section className="card filterpanel">
+          <div className="filtergrid">
+            <label className="field">
+              <span>Account</span>
+              <select value={accountId} onChange={(e) => setAccountId(e.target.value)}>
+                <option value="">Any account</option>
+                {accounts.map((a) => (
+                  <option key={a.id} value={a.id}>
+                    {a.name}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className="field">
+              <span>Payment method</span>
+              <select value={methodId} onChange={(e) => setMethodId(e.target.value)}>
+                <option value="">Any method</option>
+                {accountMethods.map((m) => (
+                  <option key={m.id} value={m.id}>
+                    {m.name}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className="field">
+              <span>Category</span>
+              <select
+                value={categoryId === undefined ? '' : (categoryId ?? '__uncat')}
+                onChange={(e) => {
+                  const v = e.target.value;
+                  setCategoryId(v === '' ? undefined : v === '__uncat' ? null : v);
+                }}
+              >
+                <option value="">Any category</option>
+                <option value="__uncat">Uncategorized</option>
+                {roots.map((r) => (
+                  <optgroup key={r.id} label={r.name}>
+                    <option value={r.id}>{r.name}</option>
+                    {categories
+                      .filter((c) => c.parent_id === r.id)
+                      .map((c) => (
+                        <option key={c.id} value={c.id}>
+                          {c.name}
+                        </option>
+                      ))}
+                  </optgroup>
+                ))}
+              </select>
+            </label>
+            <label className="field">
+              <span>Payee / payer</span>
+              <select value={payeeId} onChange={(e) => setPayeeId(e.target.value)}>
+                <option value="">Anyone</option>
+                {payees.map((p) => (
+                  <option key={p.id} value={p.id}>
+                    {p.name}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className="field">
+              <span>Status</span>
+              <select
+                value={status}
+                onChange={(e) => setStatus(e.target.value as '' | 'cleared' | 'uncleared')}
+              >
+                <option value="">Any status</option>
+                <option value="cleared">Cleared</option>
+                <option value="uncleared">Uncleared</option>
+              </select>
+            </label>
+            <label className="field">
+              <span>Tag</span>
+              <select value={tag} onChange={(e) => setTag(e.target.value)}>
+                <option value="">Any tag</option>
+                {tags.map((t) => (
+                  <option key={t.id} value={t.name}>
+                    #{t.name}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className="field">
+              <span>From</span>
+              <input
+                type="date"
+                value={toDateInput(from)}
+                onChange={(e) => setFrom(e.target.value ? fromDateInput(e.target.value) : '')}
+              />
+            </label>
+            <label className="field">
+              <span>To</span>
+              <input
+                type="date"
+                value={to ? toDateInput(to) : ''}
+                onChange={(e) => setTo(e.target.value ? endOfDayIso(e.target.value) : null)}
+              />
+            </label>
+          </div>
+          <div className="iorow close">
+            <button className="outline" onClick={clearAllFilters} disabled={!activeFilterCount}>
+              Clear all filters
+            </button>
+          </div>
+        </section>
+      )}
 
       <section className="card activity-card">
         {filtered.map((t) => (

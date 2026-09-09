@@ -4,7 +4,7 @@ import { api } from './api';
 import { money } from './lib';
 import { Empty } from './ui';
 import { TxRow } from './TxRow';
-import { daysAgo } from '../shared/period';
+import { periodStart, daysAgo } from '../shared/period';
 import type { CategoryTotal } from '../shared/types';
 
 type FrameData = {
@@ -15,12 +15,16 @@ type FrameData = {
   expense: number;
 };
 
-const EXTRA_PRESETS: { key: string; label: string; from: (now: number) => string }[] = [
-  { key: 'last30', label: 'Last 30 days', from: (now) => daysAgo(30, now) },
-  { key: 'last12m', label: 'Last 12 months', from: (now) => daysAgo(365, now) },
-];
+type CustomWidget = { key: string; label: string; from: string; to: string | null };
 
-const CAT_PRESETS = ['today', 'week', 'month', 'ytd', 'last30', 'last12m'] as const;
+const ALL_PRESETS: { key: string; label: string; from: (now: number) => string }[] = [
+  { key: 'today', label: 'Today', from: (n) => periodStart('day', n) },
+  { key: 'week', label: 'This week', from: (n) => periodStart('week', n) },
+  { key: 'month', label: 'This month', from: (n) => periodStart('month', n) },
+  { key: 'ytd', label: 'This year (YTD)', from: (n) => periodStart('year', n) },
+  { key: 'last30', label: 'Last 30 days', from: (n) => daysAgo(30, n) },
+  { key: 'last12m', label: 'Last 12 months', from: (n) => daysAgo(365, n) },
+];
 
 function todayInputValue(): string {
   const d = new Date();
@@ -28,36 +32,60 @@ function todayInputValue(): string {
 }
 
 export function Dashboard() {
-  const { dash, transactions, go, open, openActivity } = useStore();
+  const { dash, accounts, transactions, go, open, openActivity } = useStore();
 
-  const builtins = useMemo(() => {
-    const map: Record<string, FrameData> = {};
-    for (const f of dash?.frames || []) map[f.key] = f;
-    return map;
-  }, [dash]);
+  // ---- account scope: everything below reacts to this ----
+  const [accountFilter, setAccountFilter] = useState('');
 
+  // ---- timeframe widgets ----
   const [activeKeys, setActiveKeys] = useState<string[]>(['week', 'month']);
-  const [extra, setExtra] = useState<Record<string, FrameData>>({});
+  const [customWidgets, setCustomWidgets] = useState<CustomWidget[]>([]);
+  const [frameCache, setFrameCache] = useState<Record<string, FrameData>>({});
   const [customFrom, setCustomFrom] = useState('');
   const [customTo, setCustomTo] = useState(todayInputValue());
   const [showCustom, setShowCustom] = useState(false);
 
-  const frameData = (key: string): FrameData | undefined => builtins[key] || extra[key];
+  // Seed from the bootstrap dashboard payload (all-accounts) so the default
+  // widgets aren't empty for an instant before the scoped fetch resolves.
+  useEffect(() => {
+    if (accountFilter) return;
+    const seed: Record<string, FrameData> = {};
+    for (const f of dash?.frames || []) seed[f.key] = f;
+    setFrameCache((cur) => ({ ...seed, ...cur }));
+  }, [dash]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const addWidget = async (key: string, label: string) => {
-    if (activeKeys.includes(key)) return;
-    setActiveKeys((cur) => [...cur, key]);
-    if (!builtins[key] && !extra[key]) {
-      const preset = EXTRA_PRESETS.find((p) => p.key === key);
-      if (preset) {
-        const from = preset.from(Date.now());
-        const stats = await api.dashboardFrame(from, null).catch(() => null);
-        if (stats) setExtra((cur) => ({ ...cur, [key]: { label, from, to: null, ...stats } }));
+  // Re-fetch every active widget whenever the account scope, the active set,
+  // or a custom range changes.
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      for (const key of activeKeys) {
+        const preset = ALL_PRESETS.find((p) => p.key === key);
+        const cw = !preset ? customWidgets.find((c) => c.key === key) : null;
+        if (!preset && !cw) continue;
+        const from = preset ? preset.from(Date.now()) : cw!.from;
+        const to = preset ? null : cw!.to;
+        const label = preset ? preset.label : cw!.label;
+        const stats = await api
+          .dashboardFrame(from, to, accountFilter || undefined)
+          .catch(() => null);
+        if (cancelled) return;
+        if (stats) setFrameCache((cur) => ({ ...cur, [key]: { label, from, to, ...stats } }));
       }
-    }
-  };
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [accountFilter, activeKeys, customWidgets]);
 
-  const addCustomWidget = async () => {
+  const addWidget = (key: string) => {
+    if (!activeKeys.includes(key)) setActiveKeys((cur) => [...cur, key]);
+  };
+  const removeWidget = (key: string) => {
+    setActiveKeys((cur) => cur.filter((k) => k !== key));
+    setCustomWidgets((cur) => cur.filter((c) => c.key !== key));
+  };
+  const addCustomWidget = () => {
     if (!customFrom) return;
     const from = new Date(customFrom + 'T00:00:00').toISOString();
     const toExclusive = new Date(customTo + 'T00:00:00');
@@ -65,53 +93,62 @@ export function Dashboard() {
     const to = toExclusive.toISOString();
     const key = `custom-${customFrom}-${customTo}`;
     const label = `${customFrom} → ${customTo}`;
-    const stats = await api.dashboardFrame(from, to).catch(() => null);
-    if (stats) {
-      setExtra((cur) => ({ ...cur, [key]: { label, from, to, ...stats } }));
-      setActiveKeys((cur) => (cur.includes(key) ? cur : [...cur, key]));
-      setShowCustom(false);
-    }
+    setCustomWidgets((cur) =>
+      cur.some((c) => c.key === key) ? cur : [...cur, { key, label, from, to }]
+    );
+    setActiveKeys((cur) => (cur.includes(key) ? cur : [...cur, key]));
+    setShowCustom(false);
   };
 
-  const removeWidget = (key: string) => setActiveKeys((cur) => cur.filter((k) => k !== key));
+  const availablePresets = ALL_PRESETS.filter((p) => !activeKeys.includes(p.key));
 
-  const availablePresets = [
-    ...['today', 'ytd'].map((key) => ({
-      key,
-      label: builtins[key]?.label || key,
-    })),
-    ...EXTRA_PRESETS,
-  ].filter((p) => !activeKeys.includes(p.key));
-
-  // ---- category breakdown, with its own timeframe selector ----
+  // ---- category breakdown: timeframe + expense/income + account scope ----
   const [catKey, setCatKey] = useState<string>('month');
-  const [catData, setCatData] = useState<CategoryTotal[]>(dash?.categories || []);
+  const [catType, setCatType] = useState<'expense' | 'income'>('expense');
+  const [catData, setCatData] = useState<CategoryTotal[]>([]);
+
   useEffect(() => {
-    setCatData(dash?.categories || []);
-  }, [dash]);
-  const onCatKeyChange = async (key: string) => {
-    setCatKey(key);
-    if (key === 'month') {
-      setCatData(dash?.categories || []);
-      return;
-    }
-    let from: string;
-    if (key === 'today' || key === 'week' || key === 'ytd') {
-      from = builtins[key]?.from || new Date().toISOString();
-    } else {
-      const preset = EXTRA_PRESETS.find((p) => p.key === key);
-      from = preset ? preset.from(Date.now()) : new Date().toISOString();
-    }
-    const rows = await api.dashboardCategories(from, null).catch(() => []);
-    setCatData(rows);
-  };
+    let cancelled = false;
+    const preset = ALL_PRESETS.find((p) => p.key === catKey);
+    const from = preset ? preset.from(Date.now()) : periodStart('month');
+    (async () => {
+      const rows = await api
+        .dashboardCategories(from, null, accountFilter || undefined, catType)
+        .catch(() => []);
+      if (!cancelled) setCatData(rows);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [catKey, catType, accountFilter]);
+
   const max = catData[0]?.total || 1;
+  const catFrom = useMemo(() => {
+    const preset = ALL_PRESETS.find((p) => p.key === catKey);
+    return preset ? preset.from(Date.now()) : periodStart('month');
+  }, [catKey]);
+
+  const accountLabel = accountFilter
+    ? accounts.find((a) => a.id === accountFilter)?.name
+    : 'All accounts';
 
   return (
     <main>
+      <div className="accountscope">
+        <span>Viewing</span>
+        <select value={accountFilter} onChange={(e) => setAccountFilter(e.target.value)}>
+          <option value="">All accounts</option>
+          {accounts.map((a) => (
+            <option key={a.id} value={a.id}>
+              {a.name}
+            </option>
+          ))}
+        </select>
+      </div>
+
       <div className="framegrid">
         {activeKeys.map((key) => {
-          const f = frameData(key);
+          const f = frameCache[key];
           if (!f) return null;
           const net = f.income - f.expense;
           return (
@@ -127,9 +164,10 @@ export function Dashboard() {
                 onClick={() =>
                   openActivity({
                     type: 'income',
+                    accountId: accountFilter || undefined,
                     from: f.from,
                     to: f.to,
-                    label: `${f.label} · income`,
+                    label: `${f.label} · income${accountFilter ? ` · ${accountLabel}` : ''}`,
                   })
                 }
               >
@@ -141,9 +179,10 @@ export function Dashboard() {
                 onClick={() =>
                   openActivity({
                     type: 'expense',
+                    accountId: accountFilter || undefined,
                     from: f.from,
                     to: f.to,
-                    label: `${f.label} · expense`,
+                    label: `${f.label} · expense${accountFilter ? ` · ${accountLabel}` : ''}`,
                   })
                 }
               >
@@ -152,7 +191,14 @@ export function Dashboard() {
               </button>
               <button
                 className="framerow balance"
-                onClick={() => openActivity({ from: f.from, to: f.to, label: f.label })}
+                onClick={() =>
+                  openActivity({
+                    accountId: accountFilter || undefined,
+                    from: f.from,
+                    to: f.to,
+                    label: f.label,
+                  })
+                }
               >
                 <span>Balance</span>
                 <span className={net >= 0 ? 'positive' : ''}>{money(net)}</span>
@@ -166,7 +212,7 @@ export function Dashboard() {
         <div className="addwidget">
           <span>Add widget:</span>
           {availablePresets.map((p) => (
-            <button key={p.key} onClick={() => addWidget(p.key, p.label)}>
+            <button key={p.key} onClick={() => addWidget(p.key)}>
               ＋ {p.label}
             </button>
           ))}
@@ -210,18 +256,35 @@ export function Dashboard() {
       <section className="card">
         <div className="cardhead">
           <div>
-            <h2>Expenses by category</h2>
-            <p>{builtins[catKey]?.label || (catKey === 'month' ? 'This month' : catKey)}</p>
+            <h2>By category</h2>
+            <p>
+              {accountFilter ? `${accountLabel} · ` : ''}
+              {ALL_PRESETS.find((p) => p.key === catKey)?.label || 'This month'}
+            </p>
+          </div>
+          <div className="segmented mini">
+            <button
+              className={catType === 'expense' ? 'selected' : ''}
+              onClick={() => setCatType('expense')}
+            >
+              Expense
+            </button>
+            <button
+              className={catType === 'income' ? 'selected' : ''}
+              onClick={() => setCatType('income')}
+            >
+              Income
+            </button>
           </div>
         </div>
         <div className="cattabs">
-          {CAT_PRESETS.map((key) => (
+          {ALL_PRESETS.map((p) => (
             <button
-              key={key}
-              className={catKey === key ? 'selected' : ''}
-              onClick={() => onCatKeyChange(key)}
+              key={p.key}
+              className={catKey === p.key ? 'selected' : ''}
+              onClick={() => setCatKey(p.key)}
             >
-              {builtins[key]?.label || EXTRA_PRESETS.find((p) => p.key === key)?.label || key}
+              {p.label}
             </button>
           ))}
         </div>
@@ -234,8 +297,10 @@ export function Dashboard() {
                 onClick={() =>
                   openActivity({
                     categoryId: c.id,
-                    from: frameData(catKey)?.from,
-                    label: `${c.name} · ${builtins[catKey]?.label || catKey}`,
+                    type: catType,
+                    accountId: accountFilter || undefined,
+                    from: catFrom,
+                    label: `${c.name} · ${ALL_PRESETS.find((p) => p.key === catKey)?.label}`,
                   })
                 }
               >
@@ -246,7 +311,7 @@ export function Dashboard() {
             ))}
           </div>
         ) : (
-          <Empty text="No expenses recorded in this period." />
+          <Empty text={`No ${catType} recorded in this period.`} />
         )}
       </section>
 

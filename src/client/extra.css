@@ -866,3 +866,110 @@ input[type='file'] {
   font-size: 12px;
   font-weight: 700;
 }
+
+/* --- dashboard account scope selector --- */
+.accountscope {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 16px;
+}
+.accountscope span {
+  font-size: 12px;
+  font-weight: 700;
+  color: #7b8797;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.accountscope select {
+  border: 1px solid #d8e0e9;
+  background: #fff;
+  border-radius: 11px;
+  padding: 9px 12px;
+  font-size: 14px;
+  font-weight: 700;
+  color: #1d314a;
+}
+
+/* --- activity filter panel --- */
+.filtertools {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.filtersbtn {
+  padding: 8px 12px;
+  font-size: 12px;
+  white-space: nowrap;
+}
+.filtersbtn.active {
+  background: #eef4fb;
+  border-color: #b9d3f2;
+  color: #1769d1;
+  font-weight: 700;
+}
+.filterpanel {
+  margin-top: -4px;
+}
+.filtergrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(170px, 1fr));
+  gap: 12px;
+}
+.filtergrid .field select,
+.filtergrid .field input {
+  font-size: 13px;
+}
+@media (max-width: 650px) {
+  .filtertools {
+    flex-wrap: wrap;
+  }
+  .filtergrid {
+    grid-template-columns: 1fr 1fr;
+  }
+}
+
+/* --- transaction note shown as sub-text in Activity/lists --- */
+.txnote {
+  display: block;
+  font-size: 12px;
+  color: #8793a3;
+  font-style: italic;
+  margin-top: 2px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* --- audit log: soft-link to the referenced transaction --- */
+.auditref {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  width: 100%;
+  margin-top: 6px;
+  padding: 8px 10px;
+  background: #f7f9fb;
+  border: 1px solid #e7ebf0;
+  border-radius: 10px;
+  text-align: left;
+  cursor: pointer;
+}
+.auditref:hover {
+  background: #eef4fb;
+  border-color: #b9d3f2;
+}
+.auditref span {
+  font-size: 12px;
+  color: #4a586c;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.auditref b {
+  flex: none;
+  font-size: 12px;
+  color: #1769d1;
+  font-weight: 700;
+}

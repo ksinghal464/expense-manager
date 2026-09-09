@@ -17,6 +17,10 @@ export type ActivityFilter = {
   type?: 'expense' | 'income';
   accountId?: string;
   categoryId?: string | null;
+  methodId?: string;
+  payeeId?: string;
+  status?: 'cleared' | 'uncleared';
+  tag?: string;
   from?: string;
   to?: string | null;
   label?: string;

@@ -27,6 +27,7 @@ export function TxRow({
           {t.payee_name ? ` · ${t.payee_name}` : ''}
           {t.is_split_parent ? ' · Split' : ''}
         </span>
+        {t.note && <span className="txnote">📝 {t.note}</span>}
         {isRefund && t.refunds_transaction_id && (
           <span
             className={`txreflink${onOpenRef ? ' clickable' : ''}`}

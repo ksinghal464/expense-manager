@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { api } from './api';
 import { useStore } from './store';
-import { money, fmtDateTime, toInput } from './lib';
+import { money, fmtDateTime, toInput, parseJson } from './lib';
 import { Empty, Err, Segmented, FieldsModal, ConfirmDialog } from './ui';
 import { ImportExport } from './ImportExport';
 import { TxRow } from './TxRow';
@@ -599,7 +599,7 @@ function TrashTab() {
 
 // ---------------- Audit ----------------
 function AuditTab() {
-  const { accounts, categories, methods, payees } = useStore();
+  const { accounts, categories, methods, payees, open } = useStore();
   const [rows, setRows] = useState<AuditEntry[]>([]);
   const [err, setErr] = useState('');
   const [limit, setLimit] = useState(200);
@@ -620,34 +620,54 @@ function AuditTab() {
         </div>
       </div>
       {err && <Err msg={err} />}
-      {rows.slice(0, limit).map((a) => (
-        <div className="globalaudit" key={a.id}>
-          <div className="auditbadge">
-            {a.action === 'create'
-              ? '＋'
-              : a.action === 'update'
-                ? '↻'
-                : a.action === 'restore'
-                  ? '↺'
-                  : '−'}
-          </div>
-          <div className="auditcontent">
-            <div className="auditheadline">
-              <strong>
-                {a.action.charAt(0).toUpperCase() + a.action.slice(1)}{' '}
-                {a.entity_type.replace(/_/g, ' ')}
-              </strong>
-              <small>{fmtDateTime(a.occurred_at)}</small>
+      {rows.slice(0, limit).map((a) => {
+        const isTx = a.entity_type === 'transaction';
+        const snap = isTx ? parseJson(a.after_json) || parseJson(a.before_json) : null;
+        return (
+          <div className="globalaudit" key={a.id}>
+            <div className="auditbadge">
+              {a.action === 'create'
+                ? '＋'
+                : a.action === 'update'
+                  ? '↻'
+                  : a.action === 'restore'
+                    ? '↺'
+                    : '−'}
             </div>
-            <AuditBody
-              action={a.action}
-              before={a.before_json}
-              after={a.after_json}
-              lookups={{ accounts, categories, methods, payees }}
-            />
+            <div className="auditcontent">
+              <div className="auditheadline">
+                <strong>
+                  {a.action.charAt(0).toUpperCase() + a.action.slice(1)}{' '}
+                  {a.entity_type.replace(/_/g, ' ')}
+                </strong>
+                <small>{fmtDateTime(a.occurred_at)}</small>
+              </div>
+              {isTx && snap && (
+                <button
+                  type="button"
+                  className="auditref"
+                  onClick={() => open({ kind: 'detail', id: a.entity_id })}
+                >
+                  <span>
+                    {(snap.description as string) ||
+                      (snap.transaction_type as string) ||
+                      'Transaction'}
+                    {snap.amount_minor != null ? ` · ${money(Number(snap.amount_minor))}` : ''}
+                    {snap.occurred_at ? ` · ${fmtDateTime(String(snap.occurred_at))}` : ''}
+                  </span>
+                  <b>View →</b>
+                </button>
+              )}
+              <AuditBody
+                action={a.action}
+                before={a.before_json}
+                after={a.after_json}
+                lookups={{ accounts, categories, methods, payees }}
+              />
+            </div>
           </div>
-        </div>
-      ))}
+        );
+      })}
       {!err && !rows.length && <Empty text="No audit events yet." />}
       {rows.length > limit && (
         <button className="link" onClick={() => setLimit((l) => l + 200)}>

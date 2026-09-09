@@ -3,6 +3,17 @@ import { Env, HttpError } from './http';
 export const now = () => new Date().toISOString();
 export const id = () => crypto.randomUUID();
 
+/**
+ * Canonical transactions INSERT, shared by the create-transaction API and
+ * the recurring-rule generators (manual "generate now" and the cron job)
+ * so column order can never drift between them.
+ */
+export const INSERT_TX = `INSERT INTO transactions
+  (id,account_id,payment_method_id,category_id,payee_id,transaction_type,amount_minor,occurred_at,
+   description,note,status,refunds_transaction_id,
+   parent_transaction_id,recurring_rule_id,is_split_parent,created_at,updated_at)
+   VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`;
+
 const MASTER = new Set([
   'accounts',
   'categories',

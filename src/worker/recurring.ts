@@ -1,5 +1,5 @@
 import { Env } from './http';
-import { audit, id, now } from './db';
+import { audit, id, now, INSERT_TX } from './db';
 
 type Row = Record<string, any>;
 
@@ -52,13 +52,7 @@ export async function runRecurring(env: Env): Promise<Generated> {
     }
 
     const txId = id();
-    await env.DB.prepare(
-      `INSERT INTO transactions
-        (id, account_id, payment_method_id, category_id, payee_id, transaction_type, amount_minor,
-         occurred_at, description, note, status, parent_transaction_id, recurring_rule_id, transfer_id,
-         is_split_parent, created_at, updated_at)
-       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,0,?,?,?)`
-    )
+    await env.DB.prepare(INSERT_TX)
       .bind(
         txId,
         rule.account_id,
@@ -72,8 +66,9 @@ export async function runRecurring(env: Env): Promise<Generated> {
         rule.note || '',
         'cleared',
         null,
-        rule.id,
         null,
+        rule.id,
+        0,
         asOf,
         asOf
       )
@@ -85,19 +80,10 @@ export async function runRecurring(env: Env): Promise<Generated> {
     )
       .bind(next, rule.next_due_at, asOf, rule.id)
       .run();
-    await audit(
-      env,
-      'transaction',
-      txId,
-      'create',
-      null,
-      {
-        id: txId,
-        recurring_rule_id: rule.id,
-        occurred_at: rule.next_due_at,
-      },
-      { recurring: true }
-    );
+    const createdTx = await env.DB.prepare('SELECT * FROM transactions WHERE id=?')
+      .bind(txId)
+      .first<Row>();
+    await audit(env, 'transaction', txId, 'create', null, createdTx, { recurring: true });
 
     res.created++;
   }
