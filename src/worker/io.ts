@@ -380,6 +380,37 @@ export async function importCsv(
   if (splitStmts.length) await runBatches(env, splitStmts);
   if (tagStmts.length) await runBatches(env, tagStmts);
 
+  // Feed the description autocomplete list from imported rows too — the
+  // create/update API endpoints already do this per-transaction, but a bulk
+  // CSV import bypasses that path entirely, silently leaving every
+  // imported description out of suggestions.
+  const descCounts = new Map<string, number>();
+  for (const t of txs) {
+    const d = t.row.description.trim();
+    if (d) descCounts.set(d, (descCounts.get(d) || 0) + 1);
+  }
+  if (descCounts.size) {
+    for (const [description, count] of descCounts) {
+      const ex = await env.DB.prepare(
+        'SELECT id FROM description_suggestions WHERE lower(description)=lower(?)'
+      )
+        .bind(description)
+        .first<Row>();
+      if (ex)
+        await env.DB.prepare(
+          'UPDATE description_suggestions SET usage_count=usage_count+?, last_used_at=?, updated_at=? WHERE id=?'
+        )
+          .bind(count, at, at, ex.id)
+          .run();
+      else
+        await env.DB.prepare(
+          'INSERT INTO description_suggestions (id,description,usage_count,last_used_at,created_at,updated_at) VALUES (?,?,?,?,?,?)'
+        )
+          .bind(id(), description, count, at, at, at)
+          .run();
+    }
+  }
+
   summary.inserted = txs.length;
   await audit(
     env,
