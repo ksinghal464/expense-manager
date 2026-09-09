@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { useStore } from './store';
 import { api } from './api';
 import type { SearchOptions } from './api';
-import { useDebounce, categoryRoots, categoryChildren } from './lib';
+import { useDebounce, categoryRoots, categoryChildren, money } from './lib';
 import { Empty } from './ui';
 import { TxRow } from './TxRow';
 import {
@@ -180,15 +180,16 @@ export function Activity() {
     to
   );
 
-  // Running balance shown per row. With no filter active at all, this is
-  // each account's real running balance (opening balance + cumulative net of
-  // every transaction, in chronological order, grouped by account so one
-  // account's balance never bleeds into another's). As soon as any filter —
-  // including just scoping to one account — narrows the list, the balance
-  // instead reflects the net change over just what's currently visible
-  // (starting from zero): the real opening-balance-based total isn't
-  // meaningful once the list no longer represents "everything".
-  const balanceById = useMemo(() => {
+  // Running balance shown per row, plus one combined total for the whole
+  // current view. With no filter active at all, both are the real
+  // opening-balance-based balance (per account for the row, summed across
+  // every account for the total — matching the Dashboard's account
+  // balances). As soon as any filter narrows the list — including just
+  // scoping to one account — both instead reflect the net change over only
+  // what's currently visible (starting from zero): a real balance isn't a
+  // meaningful concept once the list no longer represents "everything" for
+  // an account (e.g. it's just this month, or just one category).
+  const { balanceById, overallBalance } = useMemo(() => {
     const source = hasSubsetFilter ? filtered : transactions;
     const openingByAccount = new Map(accounts.map((a) => [a.id, a.opening_balance_minor]));
     const byAccount = new Map<string, typeof transactions>();
@@ -198,6 +199,7 @@ export function Activity() {
       byAccount.set(t.account_id, arr);
     }
     const map: Record<string, number> = {};
+    let overall = 0;
     for (const [accId, txs] of byAccount) {
       const asc = [...txs].sort(
         (a, b) =>
@@ -208,8 +210,9 @@ export function Activity() {
         running += t.transaction_type === 'income' ? t.amount_minor : -t.amount_minor;
         map[t.id] = running;
       }
+      overall += running;
     }
-    return map;
+    return { balanceById: map, overallBalance: overall };
   }, [filtered, hasSubsetFilter, transactions, accounts]);
 
   const groups: [string, string[]][] = options
@@ -319,7 +322,10 @@ export function Activity() {
       )}
 
       <div className="filterline">
-        <span>{filtered.length} entries</span>
+        <span>
+          {filtered.length} entries · {hasSubsetFilter ? 'Net' : 'Balance'}{' '}
+          <b className={overallBalance >= 0 ? 'positive' : ''}>{money(overallBalance)}</b>
+        </span>
         <div className="filtertools">
           <div className="segmented small">
             {(
