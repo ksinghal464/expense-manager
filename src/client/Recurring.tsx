@@ -2,7 +2,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { api } from './api';
 import { useStore } from './store';
 import { money, fmtDateTime, toInput, dtLocalNow, toIso } from './lib';
-import { Empty, Err, Field, SaveButton, Segmented } from './ui';
+import { Empty, Err, Field, SaveButton, Segmented, ConfirmDialog } from './ui';
 import type { RecurringRule, TxType, Account, PaymentMethod, Category } from '../shared/types';
 
 type Freq = RecurringRule['frequency'];
@@ -13,6 +13,7 @@ export function Recurring() {
   const [err, setErr] = useState('');
   const [editing, setEditing] = useState<RecurringRule | null>(null);
   const [creating, setCreating] = useState(false);
+  const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     setRules(await api.recurring().catch((e) => (setErr(e.message), [])));
@@ -96,15 +97,7 @@ export function Recurring() {
               <button className="chip" onClick={() => setEditing(r)}>
                 ✎
               </button>
-              <button
-                className="chip danger"
-                onClick={async () => {
-                  if (confirm('Delete this rule?')) {
-                    await api.deleteRecurring(r.id);
-                    await after('Deleted');
-                  }
-                }}
-              >
+              <button className="chip danger" onClick={() => setConfirmDeleteId(r.id)}>
                 ×
               </button>
             </div>
@@ -112,6 +105,18 @@ export function Recurring() {
         ))}
         {!rules.length && <Empty text="No recurring rules yet." />}
       </section>
+
+      {confirmDeleteId && (
+        <ConfirmDialog
+          title="Delete this rule?"
+          message={`"${rules.find((r) => r.id === confirmDeleteId)?.name || 'This rule'}" will stop generating new transactions. Past transactions it already created are kept.`}
+          onConfirm={async () => {
+            await api.deleteRecurring(confirmDeleteId);
+            await after('Deleted');
+          }}
+          close={() => setConfirmDeleteId(null)}
+        />
+      )}
 
       {(creating || editing) && (
         <RuleForm

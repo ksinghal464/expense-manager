@@ -813,3 +813,11 @@ input[type='file'] {
 .modalform .save {
   margin-top: 6px;
 }
+
+/* --- ConfirmDialog --- */
+.confirmtext {
+  font-size: 14px;
+  color: #4a586c;
+  line-height: 1.5;
+  margin: 4px 0 20px;
+}

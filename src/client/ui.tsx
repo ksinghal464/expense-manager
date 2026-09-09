@@ -179,32 +179,53 @@ export function FieldsModal({
   );
 }
 
-/** Inline confirm (returns a cancel/confirm button pair when armed). */
-export function ConfirmButton({
+/**
+ * Centered confirmation dialog with a built-in busy state, so a slow
+ * (network) delete visibly shows "Deleting…" instead of looking frozen.
+ */
+export function ConfirmDialog({
+  title,
+  message,
+  confirmLabel = 'Delete',
+  busyLabel = 'Deleting…',
   onConfirm,
-  label = 'Delete',
-  confirmLabel = 'Confirm',
+  close,
 }: {
-  onConfirm: () => void;
-  label?: string;
+  title: string;
+  message: string;
   confirmLabel?: string;
+  busyLabel?: string;
+  onConfirm: () => Promise<void>;
+  close: () => void;
 }) {
-  const [armed, setArmed] = React.useState(false);
-  if (armed) {
-    return (
-      <span className="confirmrow">
-        <button type="button" className="outline" onClick={() => setArmed(false)}>
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState('');
+
+  const run = async () => {
+    setBusy(true);
+    setErr('');
+    try {
+      await onConfirm();
+      close();
+    } catch (ex) {
+      setErr(ex instanceof Error ? ex.message : 'Something went wrong');
+      setBusy(false);
+    }
+  };
+
+  return (
+    <Overlay onClose={() => !busy && close()} centered>
+      <ModalHead title={title} onClose={() => !busy && close()} />
+      {err && <Err msg={err} />}
+      <p className="confirmtext">{message}</p>
+      <div className="detailactions">
+        <button type="button" className="outline" onClick={close} disabled={busy}>
           Cancel
         </button>
-        <button type="button" className="danger" onClick={onConfirm}>
-          {confirmLabel}
+        <button type="button" className="danger" onClick={run} disabled={busy}>
+          {busy ? busyLabel : confirmLabel}
         </button>
-      </span>
-    );
-  }
-  return (
-    <button type="button" className="danger" onClick={() => setArmed(true)}>
-      {label}
-    </button>
+      </div>
+    </Overlay>
   );
 }

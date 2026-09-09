@@ -2,7 +2,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { api } from './api';
 import { useStore } from './store';
 import { money, fmtDateTime, toInput } from './lib';
-import { Empty, Err, Segmented, FieldsModal } from './ui';
+import { Empty, Err, Segmented, FieldsModal, ConfirmDialog } from './ui';
 import { ImportExport } from './ImportExport';
 import { TxRow } from './TxRow';
 import { AuditBody } from './auditFormat';
@@ -77,23 +77,22 @@ function SectionHead({
   );
 }
 
-function DelBtn({ onDel }: { onDel: () => void }) {
-  const [armed, setArmed] = useState(false);
-  if (armed)
-    return (
-      <span className="confirmrow">
-        <button className="outline" onClick={() => setArmed(false)}>
-          Cancel
-        </button>
-        <button className="danger" onClick={onDel}>
-          Yes
-        </button>
-      </span>
-    );
+function DelBtn({ onDel, name, kind }: { onDel: () => Promise<void>; name: string; kind: string }) {
+  const [confirming, setConfirming] = useState(false);
   return (
-    <button className="outline" onClick={() => setArmed(true)}>
-      Delete
-    </button>
+    <>
+      <button type="button" className="outline" onClick={() => setConfirming(true)}>
+        Delete
+      </button>
+      {confirming && (
+        <ConfirmDialog
+          title={`Delete this ${kind}?`}
+          message={`"${name}" will be hidden from pickers everywhere. Existing transactions keep their history and this can be restored later.`}
+          onConfirm={onDel}
+          close={() => setConfirming(false)}
+        />
+      )}
+    </>
   );
 }
 
@@ -122,6 +121,8 @@ function AccountsTab() {
             Edit
           </button>
           <DelBtn
+            name={a.name}
+            kind="account"
             onDel={async () => {
               await api.deleteAccount(a.id);
               await refresh();
@@ -224,6 +225,8 @@ function CategoriesTab() {
                     Edit
                   </button>
                   <DelBtn
+                    name={r.name}
+                    kind="category"
                     onDel={async () => {
                       await api.deleteCategory(r.id);
                       await refresh();
@@ -253,6 +256,8 @@ function CategoriesTab() {
                       Edit
                     </button>
                     <DelBtn
+                      name={c.name}
+                      kind="category"
                       onDel={async () => {
                         await api.deleteCategory(c.id);
                         await refresh();
@@ -353,6 +358,8 @@ function MethodsTab() {
                   Edit
                 </button>
                 <DelBtn
+                  name={m.name}
+                  kind="payment method"
                   onDel={async () => {
                     await api.deletePaymentMethod(m.id);
                     await refresh();
@@ -425,6 +432,8 @@ function PayeesTab() {
             Edit
           </button>
           <DelBtn
+            name={p.name}
+            kind="payee"
             onDel={async () => {
               await api.deletePayee(p.id);
               await refresh();
@@ -483,6 +492,8 @@ function TagsTab() {
             Edit
           </button>
           <DelBtn
+            name={t.name}
+            kind="tag"
             onDel={async () => {
               await api.deleteTag(t.id);
               await refresh();
@@ -532,6 +543,7 @@ function DataTab() {
 function TrashTab() {
   const { open, refresh, toast } = useStore();
   const [items, setItems] = useState<TxView[]>([]);
+  const [confirming, setConfirming] = useState(false);
 
   const loadTrash = async () => {
     try {
@@ -553,21 +565,26 @@ function TrashTab() {
           <p>Deleted transactions. Restore or delete forever.</p>
         </div>
         {items.length ? (
-          <button
-            className="danger"
-            onClick={async () => {
-              if (confirm('Purge ALL trash? This cannot be undone.')) {
-                await api.purgeTrash();
-                await reload();
-                await refresh();
-                toast('Trash emptied');
-              }
-            }}
-          >
+          <button className="danger" onClick={() => setConfirming(true)}>
             Empty trash
           </button>
         ) : null}
       </div>
+      {confirming && (
+        <ConfirmDialog
+          title="Empty trash?"
+          message={`Permanently delete all ${items.length} item${items.length === 1 ? '' : 's'} in Trash? This cannot be undone.`}
+          confirmLabel="Empty trash"
+          busyLabel="Emptying…"
+          onConfirm={async () => {
+            await api.purgeTrash();
+            await reload();
+            await refresh();
+            toast('Trash emptied');
+          }}
+          close={() => setConfirming(false)}
+        />
+      )}
       {items.map((t) => (
         <TxRow
           key={t.id}

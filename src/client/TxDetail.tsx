@@ -2,7 +2,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { api, TxDetail as TxT, AttachmentRow } from './api';
 import { useStore } from './store';
 import { money, signedMoney, fmtDateTime, readFileAsDataUrl, MAX_ATTACHMENT_BYTES } from './lib';
-import { Empty, Err } from './ui';
+import { Empty, Err, ConfirmDialog } from './ui';
 import { AuditBody } from './auditFormat';
 import type { AuditEntry } from '../shared/types';
 
@@ -21,6 +21,7 @@ export function TxDetail({
   const [attach, setAttach] = useState<AttachmentRow[]>([]);
   const [loadErr, setLoadErr] = useState('');
   const [confirm, setConfirm] = useState(false);
+  const [busyAction, setBusyAction] = useState<'' | 'restore' | 'purge'>('');
 
   const load = useCallback(async () => {
     setLoadErr('');
@@ -198,51 +199,52 @@ export function TxDetail({
           <>
             <button
               className="primary"
-              onClick={() =>
-                api
-                  .restoreTransaction(id)
-                  .then(() => after('Restored'))
-                  .then(close)
-              }
+              disabled={!!busyAction}
+              onClick={async () => {
+                setBusyAction('restore');
+                try {
+                  await api.restoreTransaction(id);
+                  await after('Restored');
+                  close();
+                } finally {
+                  setBusyAction('');
+                }
+              }}
             >
-              Restore
+              {busyAction === 'restore' ? 'Restoring…' : 'Restore'}
             </button>
             <button
               className="danger"
-              onClick={() =>
-                api
-                  .purgeTransaction(id)
-                  .then(() => after('Permanently deleted'))
-                  .then(close)
-              }
+              disabled={!!busyAction}
+              onClick={async () => {
+                setBusyAction('purge');
+                try {
+                  await api.purgeTransaction(id);
+                  await after('Permanently deleted');
+                  close();
+                } finally {
+                  setBusyAction('');
+                }
+              }}
             >
-              Delete forever
+              {busyAction === 'purge' ? 'Deleting…' : 'Delete forever'}
             </button>
           </>
         )}
       </div>
 
       {confirm && (
-        <div className="confirm">
-          <p>Delete this transaction? It moves to Trash and stays in the audit log.</p>
-          <button className="outline" onClick={() => setConfirm(false)}>
-            Cancel
-          </button>
-          <button
-            className="danger"
-            onClick={() =>
-              api
-                .deleteTransaction(id)
-                .then(() => after('Moved to trash'))
-                .then(() => {
-                  setConfirm(false);
-                  close();
-                })
-            }
-          >
-            Delete
-          </button>
-        </div>
+        <ConfirmDialog
+          title="Delete this transaction?"
+          message="It moves to Trash and stays in the audit log — you can restore it later from Manage → Trash."
+          confirmLabel="Delete"
+          onConfirm={async () => {
+            await api.deleteTransaction(id);
+            await after('Moved to trash');
+            close();
+          }}
+          close={() => setConfirm(false)}
+        />
       )}
     </div>
   );
