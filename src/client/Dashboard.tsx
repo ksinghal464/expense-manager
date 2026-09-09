@@ -262,7 +262,7 @@ export function Dashboard() {
               {ALL_PRESETS.find((p) => p.key === catKey)?.label || 'This month'}
             </p>
           </div>
-          <div className="segmented mini">
+          <div className="segmented small">
             <button
               className={catType === 'expense' ? 'selected' : ''}
               onClick={() => setCatType('expense')}

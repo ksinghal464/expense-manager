@@ -5,7 +5,13 @@ import type { SearchOptions } from './api';
 import { useDebounce } from './lib';
 import { Empty } from './ui';
 import { TxRow } from './TxRow';
-import { istDateTimeToUTC, toISTDate } from '../shared/period';
+import {
+  istDateTimeToUTC,
+  toISTDate,
+  periodStart,
+  previousPeriodStart,
+  daysAgo,
+} from '../shared/period';
 
 function toDateInput(iso: string): string {
   return iso ? toISTDate(iso) : '';
@@ -19,6 +25,26 @@ function endOfDayIso(dateStr: string): string {
   d.setUTCDate(d.getUTCDate() + 1);
   return d.toISOString();
 }
+
+const DATE_PRESETS: { key: string; label: string; from: () => string; to: () => string | null }[] =
+  [
+    { key: 'week', label: 'This week', from: () => periodStart('week'), to: () => null },
+    {
+      key: 'lastweek',
+      label: 'Last week',
+      from: () => previousPeriodStart('week'),
+      to: () => periodStart('week'),
+    },
+    { key: 'month', label: 'This month', from: () => periodStart('month'), to: () => null },
+    {
+      key: 'lastmonth',
+      label: 'Last month',
+      from: () => previousPeriodStart('month'),
+      to: () => periodStart('month'),
+    },
+    { key: 'last30', label: 'Last 30 days', from: () => daysAgo(30), to: () => null },
+    { key: 'ytd', label: 'YTD', from: () => periodStart('year'), to: () => null },
+  ];
 
 export function Activity() {
   const {
@@ -208,7 +234,7 @@ export function Activity() {
       <div className="filterline">
         <span>{filtered.length} entries</span>
         <div className="filtertools">
-          <div className="segmented">
+          <div className="segmented small">
             {(
               [
                 ['all', 'All'],
@@ -236,6 +262,20 @@ export function Activity() {
 
       {showFilters && (
         <section className="card filterpanel">
+          <div className="datepresets">
+            {DATE_PRESETS.map((p) => (
+              <button
+                key={p.key}
+                type="button"
+                onClick={() => {
+                  setFrom(p.from());
+                  setTo(p.to());
+                }}
+              >
+                {p.label}
+              </button>
+            ))}
+          </div>
           <div className="filtergrid">
             <label className="field">
               <span>Account</span>

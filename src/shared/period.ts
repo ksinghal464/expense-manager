@@ -37,6 +37,22 @@ export function daysAgo(n: number, nowMs: number = Date.now()): string {
   return new Date(startWall.getTime() - IST_OFFSET_MS).toISOString();
 }
 
+/** Start of the *previous* calendar week/month (IST wall-clock), as a UTC ISO instant. */
+export function previousPeriodStart(kind: 'week' | 'month', nowMs: number = Date.now()): string {
+  const w = new Date(nowMs + IST_OFFSET_MS);
+  const y = w.getUTCFullYear();
+  const m = w.getUTCMonth();
+  const d = w.getUTCDate();
+  let startWall: Date;
+  if (kind === 'month') startWall = new Date(Date.UTC(y, m - 1, 1));
+  else {
+    const dow = w.getUTCDay();
+    const sinceMonday = (dow + 6) % 7;
+    startWall = new Date(Date.UTC(y, m, d - sinceMonday - 7));
+  }
+  return new Date(startWall.getTime() - IST_OFFSET_MS).toISOString();
+}
+
 /** Convert an IST wall-clock date ("yyyy-MM-dd") and optional "HH:mm" to a UTC ISO instant. */
 export function istDateTimeToUTC(date: string, time = '00:00'): string {
   const [y, m, d] = date.split('-').map(Number);

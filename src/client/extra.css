@@ -898,8 +898,12 @@ input[type='file'] {
   gap: 8px;
 }
 .filtersbtn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
   padding: 8px 12px;
   font-size: 12px;
+  line-height: 1;
   white-space: nowrap;
 }
 .filtersbtn.active {
@@ -972,4 +976,36 @@ input[type='file'] {
   font-size: 12px;
   color: #1769d1;
   font-weight: 700;
+}
+
+/* --- segmented control nested in a cardhead (no bottom margin needed) --- */
+.segmented.small {
+  margin-bottom: 0;
+}
+
+/* --- activity filterline: keep the entries count and filter controls aligned --- */
+.filterline {
+  align-items: center;
+}
+
+/* --- activity filter panel: quick date range presets --- */
+.datepresets {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 14px;
+  padding-bottom: 14px;
+  border-bottom: 1px dashed #e5eaf0;
+}
+.datepresets button {
+  border: 1px solid #dce3eb;
+  background: #fff;
+  color: #33415a;
+  padding: 6px 12px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 650;
+}
+.datepresets button:hover {
+  background: #f1f5f9;
 }

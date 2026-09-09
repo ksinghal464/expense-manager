@@ -738,7 +738,7 @@ async function createMethod(env: Env, request: Request): Promise<Response> {
     deleted_at: null,
   };
   await env.DB.prepare(
-    'INSERT INTO payment_methods (id,account_id,name,is_active,created_at,updated_at) VALUES (?,?,?,?,1,?)'
+    'INSERT INTO payment_methods (id,account_id,name,is_active,created_at,updated_at) VALUES (?,?,?,1,?,?)'
   )
     .bind(m.id, accountId, name, at, at)
     .run();
