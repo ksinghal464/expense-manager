@@ -310,7 +310,7 @@ export async function importCsv(
            (id,account_id,payment_method_id,category_id,payee_id,transaction_type,amount_minor,occurred_at,
             description,note,status,refunds_transaction_id,
             parent_transaction_id,recurring_rule_id,is_split_parent,created_at,updated_at)
-         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,0,?,?)`
+         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
       ).bind(
         txId,
         t.ctx.accountId,
