@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { api } from './api';
 import { useStore } from './store';
-import { money, fmtDateTime, toInput, dtLocalNow, toIso } from './lib';
+import { money, fmtDateTime, toInput, dtLocalNow, toIso, avatarLetter } from './lib';
 import { Empty, Err, Field, SaveButton, Segmented, ConfirmDialog, CategoryPicker } from './ui';
 import type { RecurringRule, TxType, Account, PaymentMethod, Category } from '../shared/types';
 
@@ -44,7 +44,7 @@ export function Recurring() {
       <section className="card">
         {rules.map((r) => (
           <div className="recurringrow" key={r.id}>
-            <div className="avatar">{(r.description || r.name || '?').charAt(0).toUpperCase()}</div>
+            <div className="avatar">{avatarLetter(r.description, r.name)}</div>
             <div className="txmain">
               <strong className={r.is_active ? '' : 'strikethrough'}>
                 {r.name}

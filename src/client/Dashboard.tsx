@@ -5,7 +5,7 @@ import { api } from './api';
 import { money } from './lib';
 import { Empty } from './ui';
 import { TxRow } from './TxRow';
-import { periodStart, daysAgo } from '../shared/period';
+import { periodStart, PERIOD_PRESETS } from '../shared/period';
 import type { CategoryTotal } from '../shared/types';
 
 type FrameData = {
@@ -19,17 +19,6 @@ type FrameData = {
 
 type CustomWidget = { key: string; label: string; from: string; to: string | null };
 
-const EPOCH_ISO = '1970-01-01T00:00:00.000Z';
-
-const ALL_PRESETS: { key: string; label: string; from: (now: number) => string }[] = [
-  { key: 'today', label: 'Today', from: (n) => periodStart('day', n) },
-  { key: 'week', label: 'This week', from: (n) => periodStart('week', n) },
-  { key: 'month', label: 'This month', from: (n) => periodStart('month', n) },
-  { key: 'ytd', label: 'This year (YTD)', from: (n) => periodStart('year', n) },
-  { key: 'last30', label: 'Last 30 days', from: (n) => daysAgo(30, n) },
-  { key: 'last12m', label: 'Last 12 months', from: (n) => daysAgo(365, n) },
-  { key: 'all', label: 'All time', from: () => EPOCH_ISO },
-];
 
 function todayInputValue(): string {
   const d = new Date();
@@ -119,7 +108,7 @@ function BreakdownCard({
   const isCustom = key === 'custom';
   const from = useMemo(() => {
     if (isCustom) return customFrom ? dateInputToIso(customFrom) : periodStart('month');
-    const preset = ALL_PRESETS.find((p) => p.key === key);
+    const preset = PERIOD_PRESETS.find((p) => p.key === key);
     return preset ? preset.from(Date.now()) : periodStart('month');
   }, [key, customFrom]); // eslint-disable-line react-hooks/exhaustive-deps
   const to = isCustom && customFrom ? dateInputToExclusiveEndIso(customTo) : null;
@@ -145,7 +134,7 @@ function BreakdownCard({
     ? customFrom
       ? `${customFrom} → ${customTo}`
       : 'Pick a custom range'
-    : ALL_PRESETS.find((p) => p.key === key)?.label || 'This month';
+    : PERIOD_PRESETS.find((p) => p.key === key)?.label || 'This month';
 
   return (
     <section className="card">
@@ -186,7 +175,7 @@ function BreakdownCard({
         </div>
       </div>
       <div className="cattabs">
-        {ALL_PRESETS.map((p) => (
+        {PERIOD_PRESETS.map((p) => (
           <button
             key={p.key}
             className={key === p.key ? 'selected' : ''}
@@ -322,7 +311,7 @@ export function Dashboard() {
     let cancelled = false;
     (async () => {
       for (const key of activeKeys) {
-        const preset = ALL_PRESETS.find((p) => p.key === key);
+        const preset = PERIOD_PRESETS.find((p) => p.key === key);
         const cw = !preset ? customWidgets.find((c) => c.key === key) : null;
         if (!preset && !cw) continue;
         const from = preset ? preset.from(Date.now()) : cw!.from;
@@ -362,7 +351,7 @@ export function Dashboard() {
     setShowCustom(false);
   };
 
-  const availablePresets = ALL_PRESETS.filter((p) => !activeKeys.includes(p.key));
+  const availablePresets = PERIOD_PRESETS.filter((p) => !activeKeys.includes(p.key));
 
   const accountLabel = accountFilter
     ? accounts.find((a) => a.id === accountFilter)?.name

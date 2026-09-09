@@ -11,6 +11,8 @@ import {
   INSERT_TX,
   INSERT_TX_RECURRING_IDEMPOTENT,
   checkTxReferences,
+  touchDescriptionSuggestion,
+  validateTxReferences,
 } from './db';
 import { buildDashboard, rangeStats, categoryBreakdown, entityBreakdown } from './aggregate';
 import { runRecurring, advanceDue } from './recurring';
@@ -234,11 +236,7 @@ async function createTransaction(env: Env, request: Request): Promise<Response> 
   const methodId = optStr(b, 'methodId');
   if (!categoryId) throw new HttpError(400, 'categoryId is required');
   if (!methodId) throw new HttpError(400, 'methodId is required');
-  if (!(await exists(env, 'categories', categoryId)))
-    throw new HttpError(400, 'Category not found');
-  if (!(await exists(env, 'payment_methods', methodId)))
-    throw new HttpError(400, 'Payment method not found');
-  await checkTxReferences(env, accountId, methodId, categoryId, type);
+  await validateTxReferences(env, { accountId, methodId, categoryId, type });
 
   const refundsTransactionId = optStr(b, 'refundsTransactionId');
   if (refundsTransactionId) {
@@ -358,25 +356,7 @@ async function createTransaction(env: Env, request: Request): Promise<Response> 
     );
   }
 
-  if (description) {
-    const ex = await env.DB.prepare(
-      'SELECT id FROM description_suggestions WHERE lower(description)=lower(?)'
-    )
-      .bind(description)
-      .first<Row>();
-    if (ex)
-      await env.DB.prepare(
-        'UPDATE description_suggestions SET usage_count=usage_count+1, last_used_at=?, updated_at=? WHERE id=?'
-      )
-        .bind(at, at, ex.id)
-        .run();
-    else
-      await env.DB.prepare(
-        'INSERT INTO description_suggestions (id,description,usage_count,last_used_at,created_at,updated_at) VALUES (?,?,1,?,?,?)'
-      )
-        .bind(id(), description, at, at, at)
-        .run();
-  }
+  await touchDescriptionSuggestion(env, description, at);
 
   const created = await env.DB.prepare('SELECT * FROM transactions WHERE id=?')
     .bind(txId)
@@ -401,18 +381,13 @@ async function updateTransaction(env: Env, request: Request, txId: string): Prom
   if (!TYPE_RE.test(type)) throw new HttpError(400, 'type must be expense or income');
   if (!(amountMinor > 0)) throw new HttpError(400, 'amount must be greater than zero');
   const accountId = b['accountId'] !== undefined ? String(b['accountId']) : before.account_id;
-  if (!(await exists(env, 'accounts', accountId))) throw new HttpError(400, 'Account not found');
   const methodId =
     b['methodId'] !== undefined ? String(b['methodId'] || '') : before.payment_method_id;
   const categoryId =
     b['categoryId'] !== undefined ? String(b['categoryId'] || '') : before.category_id;
   if (!methodId) throw new HttpError(400, 'methodId is required');
   if (!categoryId) throw new HttpError(400, 'categoryId is required');
-  if (!(await exists(env, 'payment_methods', methodId)))
-    throw new HttpError(400, 'Payment method not found');
-  if (!(await exists(env, 'categories', categoryId)))
-    throw new HttpError(400, 'Category not found');
-  await checkTxReferences(env, accountId, methodId, categoryId, type);
+  await validateTxReferences(env, { accountId, methodId, categoryId, type });
 
   let payeeId =
     b['payeeId'] === null
@@ -578,25 +553,7 @@ async function updateTransaction(env: Env, request: Request, txId: string): Prom
       );
   }
 
-  if (description) {
-    const ex = await env.DB.prepare(
-      'SELECT id FROM description_suggestions WHERE lower(description)=lower(?)'
-    )
-      .bind(description)
-      .first<Row>();
-    if (ex)
-      await env.DB.prepare(
-        'UPDATE description_suggestions SET usage_count=usage_count+1, last_used_at=?, updated_at=? WHERE id=?'
-      )
-        .bind(at, at, ex.id)
-        .run();
-    else
-      await env.DB.prepare(
-        'INSERT INTO description_suggestions (id,description,usage_count,last_used_at,created_at,updated_at) VALUES (?,?,1,?,?,?)'
-      )
-        .bind(id(), description, at, at, at)
-        .run();
-  }
+  await touchDescriptionSuggestion(env, description, at);
 
   const after: Row = (await env.DB.prepare('SELECT * FROM transactions WHERE id=?')
     .bind(txId)

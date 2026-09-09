@@ -1,5 +1,5 @@
 import { Env } from './http';
-import { periodStart, daysAgo } from '../shared/period';
+import { periodStart, PERIOD_PRESETS } from '../shared/period';
 import type { Dashboard, Account, DashboardFrame, CategoryTotal } from '../shared/types';
 
 type Row = Record<string, any>;
@@ -112,38 +112,30 @@ export async function entityBreakdown(
   return r.results.map((row) => ({ id: row.id ?? null, name: row.name, total: row.total }));
 }
 
-const PRESETS: { key: string; label: string }[] = [
-  { key: 'today', label: 'Today' },
-  { key: 'week', label: 'This week' },
-  { key: 'month', label: 'This month' },
-  { key: 'ytd', label: 'This year (YTD)' },
-];
-
-function presetRange(key: string, nowMs: number): { from: string; to: string | null } {
-  if (key === 'today') return { from: periodStart('day', nowMs), to: null };
-  if (key === 'week') return { from: periodStart('week', nowMs), to: null };
-  if (key === 'month') return { from: periodStart('month', nowMs), to: null };
-  if (key === 'ytd') return { from: periodStart('year', nowMs), to: null };
-  if (key === 'last30') return { from: daysAgo(30, nowMs), to: null };
-  if (key === 'last12m') return { from: daysAgo(365, nowMs), to: null };
-  return { from: periodStart('month', nowMs), to: null };
-}
+// The dashboard's default (bootstrap) frames are just today/week/month/YTD —
+// last30/last12m/all are only ever requested on demand via /api/dashboard/frame
+// with an explicit `from`, so they don't need a seeded default frame here.
+const DEFAULT_DASHBOARD_PRESET_KEYS = new Set(['today', 'week', 'month', 'ytd']);
+const DASHBOARD_PRESETS = PERIOD_PRESETS.filter((p) => DEFAULT_DASHBOARD_PRESET_KEYS.has(p.key));
 
 export async function buildDashboard(env: Env): Promise<Dashboard> {
   const nowMs = Date.now();
 
   const [frameStats, categories, accounts] = await Promise.all([
-    Promise.all(PRESETS.map((p) => rangeStats(env, presetRange(p.key, nowMs).from, null))),
+    Promise.all(DASHBOARD_PRESETS.map((p) => rangeStats(env, p.from(nowMs), null))),
     categoryBreakdown(env, periodStart('month', nowMs), null),
     env.DB.prepare(
       `SELECT * FROM accounts WHERE deleted_at IS NULL AND is_active=1 ORDER BY name`
     ).all<Row>(),
   ]);
 
-  const frames: DashboardFrame[] = PRESETS.map((p, i) => {
-    const { from } = presetRange(p.key, nowMs);
-    return { key: p.key, label: p.label, from, to: null, ...frameStats[i] };
-  });
+  const frames: DashboardFrame[] = DASHBOARD_PRESETS.map((p, i) => ({
+    key: p.key,
+    label: p.label,
+    from: p.from(nowMs),
+    to: null,
+    ...frameStats[i],
+  }));
 
   const balances = await Promise.all(
     accounts.results.map((a) =>

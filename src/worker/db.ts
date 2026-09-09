@@ -136,6 +136,30 @@ export async function checkTxReferences(
   }
 }
 
+/**
+ * Bundle the reference checks shared by createTransaction/updateTransaction:
+ * account/category/method must all point at live rows, plus the
+ * belongs-to-account and kind-compatibility checks from checkTxReferences.
+ * Callers are still responsible for their own "categoryId/methodId is
+ * required" presence checks first (exists() treats a null FK as valid).
+ */
+export async function validateTxReferences(
+  env: Env,
+  refs: {
+    accountId: string;
+    methodId: string | null;
+    categoryId: string | null;
+    type: string;
+  }
+): Promise<void> {
+  if (!(await exists(env, 'accounts', refs.accountId))) throw new HttpError(400, 'Account not found');
+  if (!(await exists(env, 'categories', refs.categoryId)))
+    throw new HttpError(400, 'Category not found');
+  if (!(await exists(env, 'payment_methods', refs.methodId)))
+    throw new HttpError(400, 'Payment method not found');
+  await checkTxReferences(env, refs.accountId, refs.methodId, refs.categoryId, refs.type);
+}
+
 /** Coerce an input date (ISO or datetime-local) to a UTC ISO string. */
 export function toIso(input: unknown, fallback: string = now()): string {
   const s = String(input ?? '').trim();
@@ -168,4 +192,37 @@ export async function runBatches(env: Env, stmts: D1PreparedStatement[]): Promis
   for (let i = 0; i < stmts.length; i += 100) {
     await env.DB.batch(stmts.slice(i, i + 100));
   }
+}
+
+/**
+ * Feed the description autocomplete list: bump the usage count of an
+ * existing (case-insensitive) match, or insert a new suggestion. Shared by
+ * the create/update transaction endpoints (count=1 each) and the CSV
+ * importer (count = occurrences within the imported batch). No-op for a
+ * blank description.
+ */
+export async function touchDescriptionSuggestion(
+  env: Env,
+  description: string,
+  at: string,
+  count = 1
+): Promise<void> {
+  if (!description) return;
+  const ex = await env.DB.prepare(
+    'SELECT id FROM description_suggestions WHERE lower(description)=lower(?)'
+  )
+    .bind(description)
+    .first<Row>();
+  if (ex)
+    await env.DB.prepare(
+      'UPDATE description_suggestions SET usage_count=usage_count+?, last_used_at=?, updated_at=? WHERE id=?'
+    )
+      .bind(count, at, at, ex.id)
+      .run();
+  else
+    await env.DB.prepare(
+      'INSERT INTO description_suggestions (id,description,usage_count,last_used_at,created_at,updated_at) VALUES (?,?,?,?,?,?)'
+    )
+      .bind(id(), description, count, at, at, at)
+      .run();
 }

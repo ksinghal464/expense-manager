@@ -1,4 +1,4 @@
-import { signedMoney, fmtDateTime, money } from './lib';
+import { signedMoney, fmtDateTime, money, avatarLetter } from './lib';
 import type { TxView } from '../shared/types';
 
 export function TxRow({
@@ -20,7 +20,7 @@ export function TxRow({
   return (
     <button className={`tx${isRefund ? ' refund' : ''}`} onClick={onClick}>
       <div className="avatar">
-        {(t.description || t.payee_name || t.category_name || '?').charAt(0).toUpperCase()}
+        {avatarLetter(t.description, t.payee_name, t.category_name)}
       </div>
       <div className="txmain">
         <strong>{t.description || t.payee_name || ''}</strong>

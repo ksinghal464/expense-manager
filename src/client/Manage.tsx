@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { api } from './api';
 import { useStore } from './store';
-import { money, fmtDateTime, toInput, parseJson } from './lib';
+import { money, fmtDateTime, toInput, parseJson, categoryRoots, categoryChildren } from './lib';
 import { Empty, Err, Segmented, FieldsModal, ConfirmDialog } from './ui';
 import { ImportExport } from './ImportExport';
 import { TxRow } from './TxRow';
@@ -181,10 +181,8 @@ function CategoriesTab() {
   const [creating, setCreating] = useState(false);
 
   const shown = categories.filter((c) => kind === 'all' || c.kind === kind || c.kind === 'both');
-  const roots = shown.filter((c) => !c.parent_id);
-  const topOptions = categories
-    .filter((c) => !c.parent_id)
-    .map((c) => ({ value: c.id, label: c.name }));
+  const roots = categoryRoots(shown);
+  const topOptions = categoryRoots(categories).map((c) => ({ value: c.id, label: c.name }));
 
   return (
     <section className="card manager">
@@ -205,7 +203,7 @@ function CategoriesTab() {
       />
       <div className="catlist">
         {roots.map((r) => {
-          const children = shown.filter((c) => c.parent_id === r.id);
+          const children = categoryChildren(shown, r.id);
           const kindLabel =
             r.kind === 'both' ? 'Expense + Income' : r.kind === 'income' ? 'Income' : 'Expense';
           return (

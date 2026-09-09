@@ -81,3 +81,18 @@ export function toISTDate(iso: string): string {
     String(w.getUTCDate()).padStart(2, '0')
   );
 }
+
+/**
+ * Canonical "since X" timeframe presets shared by the dashboard's default
+ * (bootstrap) frames on the worker and the Dashboard's timeframe widgets on
+ * the client, so the key/label/range mapping only exists in one place.
+ */
+export const PERIOD_PRESETS: { key: string; label: string; from: (nowMs: number) => string }[] = [
+  { key: 'today', label: 'Today', from: (n) => periodStart('day', n) },
+  { key: 'week', label: 'This week', from: (n) => periodStart('week', n) },
+  { key: 'month', label: 'This month', from: (n) => periodStart('month', n) },
+  { key: 'ytd', label: 'This year (YTD)', from: (n) => periodStart('year', n) },
+  { key: 'last30', label: 'Last 30 days', from: (n) => daysAgo(30, n) },
+  { key: 'last12m', label: 'Last 12 months', from: (n) => daysAgo(365, n) },
+  { key: 'all', label: 'All time', from: () => '1970-01-01T00:00:00.000Z' },
+];

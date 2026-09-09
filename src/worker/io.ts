@@ -1,5 +1,5 @@
 import { Env, HttpError } from './http';
-import { audit, id, now, runBatches } from './db';
+import { audit, id, now, runBatches, touchDescriptionSuggestion } from './db';
 import { parseImportCsv, normalizeRows, groupRows, csvEscape, NormImportRow } from '../shared/csv';
 import { toISTDate, parseDDMMYYYY } from '../shared/period';
 import type { ImportSummary } from '../shared/types';
@@ -391,23 +391,7 @@ export async function importCsv(
   }
   if (descCounts.size) {
     for (const [description, count] of descCounts) {
-      const ex = await env.DB.prepare(
-        'SELECT id FROM description_suggestions WHERE lower(description)=lower(?)'
-      )
-        .bind(description)
-        .first<Row>();
-      if (ex)
-        await env.DB.prepare(
-          'UPDATE description_suggestions SET usage_count=usage_count+?, last_used_at=?, updated_at=? WHERE id=?'
-        )
-          .bind(count, at, at, ex.id)
-          .run();
-      else
-        await env.DB.prepare(
-          'INSERT INTO description_suggestions (id,description,usage_count,last_used_at,created_at,updated_at) VALUES (?,?,?,?,?,?)'
-        )
-          .bind(id(), description, count, at, at, at)
-          .run();
+      await touchDescriptionSuggestion(env, description, at, count);
     }
   }
 

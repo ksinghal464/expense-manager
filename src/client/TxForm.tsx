@@ -12,6 +12,8 @@ import {
   readFileAsDataUrl,
   MAX_ATTACHMENT_BYTES,
   fmtDateTime,
+  categoryRoots,
+  categoryChildren,
 } from './lib';
 import { Field, SaveButton, Err, CategoryPicker } from './ui';
 import type {
@@ -153,7 +155,7 @@ export function TxForm({
   useEffect(() => {
     if (categoryId && !cats.some((c) => c.id === categoryId)) setCategoryId('');
   }, [type]); // eslint-disable-line react-hooks/exhaustive-deps
-  const roots = cats.filter((c) => !c.parent_id);
+  const roots = categoryRoots(cats);
   const expenses = useMemo(
     () => transactions.filter((t) => t.transaction_type === 'expense'),
     [transactions]
@@ -524,13 +526,11 @@ export function TxForm({
                     {roots.map((r) => (
                       <optgroup key={r.id} label={r.name}>
                         <option value={r.id}>{r.name} (general)</option>
-                        {cats
-                          .filter((c) => c.parent_id === r.id)
-                          .map((c) => (
-                            <option key={c.id} value={c.id}>
-                              {c.name}
-                            </option>
-                          ))}
+                        {categoryChildren(cats, r.id).map((c) => (
+                          <option key={c.id} value={c.id}>
+                            {c.name}
+                          </option>
+                        ))}
                       </optgroup>
                     ))}
                   </select>

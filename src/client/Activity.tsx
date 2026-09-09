@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { useStore } from './store';
 import { api } from './api';
 import type { SearchOptions } from './api';
-import { useDebounce } from './lib';
+import { useDebounce, categoryRoots, categoryChildren } from './lib';
 import { Empty } from './ui';
 import { TxRow } from './TxRow';
 import {
@@ -128,7 +128,7 @@ export function Activity() {
     () => (accountId ? methods.filter((m) => m.account_id === accountId) : methods),
     [methods, accountId]
   );
-  const roots = categories.filter((c) => !c.parent_id);
+  const roots = categoryRoots(categories);
 
   const filtered = useMemo(() => {
     const terms = query.trim().toLowerCase().split(/\s+/).filter(Boolean);
@@ -389,13 +389,11 @@ export function Activity() {
                 {roots.map((r) => (
                   <optgroup key={r.id} label={r.name}>
                     <option value={r.id}>{r.name}</option>
-                    {categories
-                      .filter((c) => c.parent_id === r.id)
-                      .map((c) => (
-                        <option key={c.id} value={c.id}>
-                          {c.name}
-                        </option>
-                      ))}
+                    {categoryChildren(categories, r.id).map((c) => (
+                      <option key={c.id} value={c.id}>
+                        {c.name}
+                      </option>
+                    ))}
                   </optgroup>
                 ))}
               </select>

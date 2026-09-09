@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { formatMinor, parseAmount, toMinor } from '../shared/money';
 import { IST_OFFSET_MS } from '../shared/period';
-import type { TxType } from '../shared/types';
+import type { TxType, Category } from '../shared/types';
 
 /** ₹-formatted amount from minor units. */
 export const money = (minor: number): string => formatMinor(minor);
@@ -105,4 +105,22 @@ export function readFileAsDataUrl(file: File): Promise<string> {
     r.onerror = () => reject(new Error('Unable to read file'));
     r.readAsDataURL(file);
   });
+}
+
+/** First letter (uppercased) of the first non-empty candidate, for avatar badges. */
+export function avatarLetter(...candidates: (string | null | undefined)[]): string {
+  for (const c of candidates) {
+    if (c && c.trim()) return c.trim().charAt(0).toUpperCase();
+  }
+  return '?';
+}
+
+/** Top-level (parent-less) categories. */
+export function categoryRoots(categories: Category[]): Category[] {
+  return categories.filter((c) => !c.parent_id);
+}
+
+/** Direct children of a given root category. */
+export function categoryChildren(categories: Category[], rootId: string): Category[] {
+  return categories.filter((c) => c.parent_id === rootId);
 }
