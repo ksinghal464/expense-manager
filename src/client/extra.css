@@ -1320,3 +1320,70 @@ select option[disabled] {
 .picker .placeholder {
   color: #9aa6b6;
 }
+
+/* --- horizontal tab/chip strips: unobtrusive scrollbar, breathing room
+   so it doesn't visually collide with the buttons above/around it --- */
+.manage-tabs,
+.cattabs {
+  overflow-x: auto;
+  overflow-y: hidden;
+  padding-bottom: 6px;
+  scrollbar-width: thin;
+  scrollbar-color: #d8e0e9 transparent;
+}
+.manage-tabs::-webkit-scrollbar,
+.cattabs::-webkit-scrollbar {
+  height: 4px;
+}
+.manage-tabs::-webkit-scrollbar-track,
+.cattabs::-webkit-scrollbar-track {
+  background: transparent;
+}
+.manage-tabs::-webkit-scrollbar-thumb,
+.cattabs::-webkit-scrollbar-thumb {
+  background: #d8e0e9;
+  border-radius: 4px;
+}
+
+/* --- softer, less "loud" typography: slightly lighter weights than the
+   original design used --- */
+.appbar .mark {
+  font-weight: 700;
+}
+.avatar,
+.roundicon,
+.catdot {
+  font-weight: 650;
+}
+.amount input {
+  font-weight: 700;
+}
+.primary,
+.save {
+  font-weight: 650;
+}
+.stats small {
+  font-weight: 700;
+}
+h1 {
+  font-weight: 700;
+  letter-spacing: -0.02em;
+}
+.link {
+  font-weight: 650;
+}
+.auditentity {
+  font-weight: 650;
+}
+
+@media (max-width: 650px) {
+  /* Fixed bottom tab bar: respect the safe area on notched phones so the
+     scrollbar/gesture bar doesn't sit flush against the tab labels. */
+  nav {
+    padding-bottom: env(safe-area-inset-bottom, 0);
+    height: calc(68px + env(safe-area-inset-bottom, 0));
+  }
+  .app {
+    padding-bottom: calc(95px + env(safe-area-inset-bottom, 0));
+  }
+}

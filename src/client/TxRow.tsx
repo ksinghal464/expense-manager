@@ -6,11 +6,13 @@ export function TxRow({
   onClick,
   onOpenRef,
   balance,
+  balanceLabel,
 }: {
   t: TxView;
   onClick: () => void;
   onOpenRef?: (id: string) => void;
   balance?: number;
+  balanceLabel?: string;
 }) {
   const isIncome = t.transaction_type === 'income';
   const isRefund = !!t.refunds_transaction_id;
@@ -69,7 +71,11 @@ export function TxRow({
             Net {signedMoney(t.amount_minor - (t.refunded_minor || 0), t.transaction_type)}
           </small>
         )}
-        {balance !== undefined && <small>Bal {money(balance)}</small>}
+        {balance !== undefined && (
+          <small>
+            {balanceLabel || 'Bal'} {money(balance)}
+          </small>
+        )}
       </div>
     </button>
   );

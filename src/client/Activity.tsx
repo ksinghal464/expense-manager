@@ -72,7 +72,9 @@ export function Activity() {
   const [filterLabel, setFilterLabel] = useState('');
   const [showFilters, setShowFilters] = useState(false);
   const debounced = useDebounce(query, 180);
+  const lastTerm = useMemo(() => debounced.trim().split(/\s+/).pop() || '', [debounced]);
   const [options, setOptions] = useState<SearchOptions | null>(null);
+  const [popupOpen, setPopupOpen] = useState(false);
 
   // Apply a filter handed off from the Dashboard (e.g. "this week's expenses",
   // an account balance, or a category bar), then clear it so it doesn't stick
@@ -94,45 +96,20 @@ export function Activity() {
     clearActivityFilter();
   }, [pendingActivityFilter, clearActivityFilter]);
 
-  // server-side search suggestions while typing
+  // server-side search suggestions while typing (based on just the word
+  // currently being composed, so accumulating multiple terms still gets
+  // relevant suggestions for the latest one instead of matching the whole
+  // multi-word string against the backend).
   useEffect(() => {
-    if (!debounced.trim()) {
+    if (!lastTerm) {
       setOptions(null);
       return;
     }
     api
-      .searchOptions(debounced.trim())
+      .searchOptions(lastTerm)
       .then(setOptions)
       .catch(() => setOptions(null));
-  }, [debounced]);
-
-  // Running balance per account (that account's opening balance + cumulative
-  // net of its own transactions so far), computed over every loaded
-  // transaction in chronological order regardless of the filters/search
-  // currently applied, then looked up per row below. Transactions are
-  // grouped by account so one account's balance never bleeds into another's.
-  const balanceById = useMemo(() => {
-    const openingByAccount = new Map(accounts.map((a) => [a.id, a.opening_balance_minor]));
-    const byAccount = new Map<string, typeof transactions>();
-    for (const t of transactions) {
-      const arr = byAccount.get(t.account_id) || [];
-      arr.push(t);
-      byAccount.set(t.account_id, arr);
-    }
-    const map: Record<string, number> = {};
-    for (const [accountId, txs] of byAccount) {
-      const asc = [...txs].sort(
-        (a, b) =>
-          a.occurred_at.localeCompare(b.occurred_at) || a.created_at.localeCompare(b.created_at)
-      );
-      let running = openingByAccount.get(accountId) ?? 0;
-      for (const t of asc) {
-        running += t.transaction_type === 'income' ? t.amount_minor : -t.amount_minor;
-        map[t.id] = running;
-      }
-    }
-    return map;
-  }, [transactions, accounts]);
+  }, [lastTerm]);
 
   const clearAllFilters = () => {
     setType('all');
@@ -154,7 +131,7 @@ export function Activity() {
   const roots = categories.filter((c) => !c.parent_id);
 
   const filtered = useMemo(() => {
-    const q = query.trim().toLowerCase();
+    const terms = query.trim().toLowerCase().split(/\s+/).filter(Boolean);
     let list = transactions;
     if (type !== 'all') list = list.filter((t) => t.transaction_type === type);
     if (accountId) list = list.filter((t) => t.account_id === accountId);
@@ -165,15 +142,75 @@ export function Activity() {
     if (tag) list = list.filter((t) => (t.tags || []).includes(tag));
     if (from) list = list.filter((t) => t.occurred_at >= from);
     if (to) list = list.filter((t) => t.occurred_at < to);
-    if (!q) return list;
-    return list.filter((t) =>
-      [t.description, t.note, t.category_name, t.account_name, t.payment_method_name, t.payee_name]
+    if (!terms.length) return list;
+    // Every space-separated term must appear somewhere (AND, not one
+    // contiguous phrase) so clicking multiple suggestions — e.g. a category
+    // then a payment method — narrows down instead of requiring an exact
+    // combined phrase match.
+    return list.filter((t) => {
+      const haystack = [
+        t.description,
+        t.note,
+        t.category_name,
+        t.account_name,
+        t.payment_method_name,
+        t.payee_name,
+      ]
         .filter(Boolean)
         .join(' ')
-        .toLowerCase()
-        .includes(q)
-    );
+        .toLowerCase();
+      return terms.every((term) => haystack.includes(term));
+    });
   }, [transactions, query, type, accountId, categoryId, methodId, payeeId, status, tag, from, to]);
+
+  // Whether any filter narrows the list down from "every transaction,
+  // across every account" — including just picking one account in the
+  // top-level scope selector, since that's still a narrower view than the
+  // true (opening-balance-based) running balance represents.
+  const hasSubsetFilter = Boolean(
+    query.trim() ||
+    type !== 'all' ||
+    accountId ||
+    categoryId !== undefined ||
+    methodId ||
+    payeeId ||
+    status ||
+    tag ||
+    from ||
+    to
+  );
+
+  // Running balance shown per row. With no filter active at all, this is
+  // each account's real running balance (opening balance + cumulative net of
+  // every transaction, in chronological order, grouped by account so one
+  // account's balance never bleeds into another's). As soon as any filter —
+  // including just scoping to one account — narrows the list, the balance
+  // instead reflects the net change over just what's currently visible
+  // (starting from zero): the real opening-balance-based total isn't
+  // meaningful once the list no longer represents "everything".
+  const balanceById = useMemo(() => {
+    const source = hasSubsetFilter ? filtered : transactions;
+    const openingByAccount = new Map(accounts.map((a) => [a.id, a.opening_balance_minor]));
+    const byAccount = new Map<string, typeof transactions>();
+    for (const t of source) {
+      const arr = byAccount.get(t.account_id) || [];
+      arr.push(t);
+      byAccount.set(t.account_id, arr);
+    }
+    const map: Record<string, number> = {};
+    for (const [accId, txs] of byAccount) {
+      const asc = [...txs].sort(
+        (a, b) =>
+          a.occurred_at.localeCompare(b.occurred_at) || a.created_at.localeCompare(b.created_at)
+      );
+      let running = hasSubsetFilter ? 0 : (openingByAccount.get(accId) ?? 0);
+      for (const t of asc) {
+        running += t.transaction_type === 'income' ? t.amount_minor : -t.amount_minor;
+        map[t.id] = running;
+      }
+    }
+    return map;
+  }, [filtered, hasSubsetFilter, transactions, accounts]);
 
   const groups: [string, string[]][] = options
     ? [
@@ -218,19 +255,46 @@ export function Activity() {
           <input
             autoComplete="off"
             value={query}
-            onChange={(e) => setQuery(e.target.value)}
+            onChange={(e) => {
+              setQuery(e.target.value);
+              setPopupOpen(true);
+            }}
+            onFocus={() => setPopupOpen(true)}
+            onBlur={() => window.setTimeout(() => setPopupOpen(false), 150)}
+            onKeyDown={(e) => {
+              if (e.key === 'Escape') setPopupOpen(false);
+            }}
             placeholder="Search anything…"
           />
-          <button onClick={() => setQuery('')}>×</button>
+          <button
+            onClick={() => {
+              setQuery('');
+              setPopupOpen(false);
+            }}
+          >
+            ×
+          </button>
         </div>
-        {options && query.trim() && (
+        {options && query.trim() && popupOpen && (
           <div className="searchpopup">
             {groups.map(([label, vals]) =>
               vals.length ? (
                 <div key={label}>
                   <label>{label}</label>
                   {vals.slice(0, 8).map((v) => (
-                    <button key={v} onClick={() => setQuery(v)}>
+                    <button
+                      key={v}
+                      onClick={() => {
+                        const terms = query
+                          .split(/\s+/)
+                          .map((s) => s.trim())
+                          .filter(Boolean);
+                        const vLower = v.toLowerCase();
+                        if (!terms.some((t) => t.toLowerCase() === vLower)) terms.push(v);
+                        setQuery(terms.join(' '));
+                        setPopupOpen(false);
+                      }}
+                    >
                       {v}
                       <span>⌕</span>
                     </button>
@@ -404,6 +468,7 @@ export function Activity() {
             key={t.id}
             t={t}
             balance={balanceById[t.id]}
+            balanceLabel={hasSubsetFilter ? 'Net' : 'Bal'}
             onClick={() => open({ kind: 'detail', id: t.id })}
             onOpenRef={(refId) => open({ kind: 'detail', id: refId })}
           />
