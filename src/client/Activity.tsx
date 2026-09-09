@@ -185,8 +185,7 @@ export function Activity() {
       ]
     : [];
 
-  const activeFilterCount = [
-    accountId,
+  const advancedFilterCount = [
     categoryId !== undefined,
     methodId,
     payeeId,
@@ -195,10 +194,23 @@ export function Activity() {
     from,
     to,
   ].filter(Boolean).length;
-  const hasDrillFilter = Boolean(filterLabel && activeFilterCount);
+  const anyFilterActive = Boolean(accountId) || advancedFilterCount > 0;
+  const hasDrillFilter = Boolean(filterLabel && anyFilterActive);
 
   return (
     <main>
+      <div className="accountscope">
+        <span>Viewing</span>
+        <select value={accountId} onChange={(e) => setAccountId(e.target.value)}>
+          <option value="">All accounts</option>
+          {accounts.map((a) => (
+            <option key={a.id} value={a.id}>
+              {a.name}
+            </option>
+          ))}
+        </select>
+      </div>
+
       <div className="searchwrap">
         <div className="search">
           <span>⌕</span>
@@ -262,10 +274,10 @@ export function Activity() {
             ))}
           </div>
           <button
-            className={`outline filtersbtn${activeFilterCount ? ' active' : ''}`}
+            className={`outline filtersbtn${advancedFilterCount ? ' active' : ''}`}
             onClick={() => setShowFilters((v) => !v)}
           >
-            ⚙ Filters{activeFilterCount ? ` (${activeFilterCount})` : ''}
+            ⚙ Filters{advancedFilterCount ? ` (${advancedFilterCount})` : ''}
           </button>
         </div>
       </div>
@@ -287,17 +299,6 @@ export function Activity() {
             ))}
           </div>
           <div className="filtergrid">
-            <label className="field">
-              <span>Account</span>
-              <select value={accountId} onChange={(e) => setAccountId(e.target.value)}>
-                <option value="">Any account</option>
-                {accounts.map((a) => (
-                  <option key={a.id} value={a.id}>
-                    {a.name}
-                  </option>
-                ))}
-              </select>
-            </label>
             <label className="field">
               <span>Payment method</span>
               <select value={methodId} onChange={(e) => setMethodId(e.target.value)}>
@@ -385,7 +386,11 @@ export function Activity() {
             </label>
           </div>
           <div className="iorow close">
-            <button className="outline" onClick={clearAllFilters} disabled={!activeFilterCount}>
+            <button
+              className="outline"
+              onClick={clearAllFilters}
+              disabled={!advancedFilterCount && !accountId}
+            >
               Clear all filters
             </button>
           </div>

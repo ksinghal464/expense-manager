@@ -297,10 +297,17 @@ function CategoriesTab() {
               key: 'parentId',
               label: 'Parent category',
               type: 'select',
-              options: [
-                { value: '', label: 'No parent — top level' },
-                ...topOptions.filter((o) => o.value !== editing?.id),
-              ],
+              options: (v: Record<string, string>) => {
+                const wantKind = v.kind || 'expense';
+                return [
+                  { value: '', label: 'No parent — top level' },
+                  ...topOptions.filter((o) => {
+                    if (o.value === editing?.id) return false;
+                    const cat = categories.find((c) => c.id === o.value);
+                    return cat && (cat.kind === 'both' || cat.kind === wantKind);
+                  }),
+                ];
+              },
               defaultValue: '',
             },
           ]}

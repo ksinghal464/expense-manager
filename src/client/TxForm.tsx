@@ -326,7 +326,7 @@ export function TxForm({ id, title, close }: { id?: string; title: string; close
           </select>
         </Field>
         <div className="field relative">
-          <label>Category *</label>
+          <span>Category *</span>
           <button type="button" className="picker" onClick={() => setCatOpen(!catOpen)}>
             {selectedCategoryLabel || 'Select category'}
             <span>⌄</span>

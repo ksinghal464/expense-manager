@@ -71,7 +71,16 @@ export function MasterModal({ modal, close }: { modal: NonNullable<Modal>; close
             key: 'parentId',
             label: 'Parent category',
             type: 'select',
-            options: [{ value: '', label: 'No parent — top level' }, ...topOptions],
+            options: (v: Record<string, string>) => {
+              const wantKind = v.kind || 'expense';
+              return [
+                { value: '', label: 'No parent — top level' },
+                ...topOptions.filter((o) => {
+                  const cat = categories.find((c) => c.id === o.value);
+                  return cat && (cat.kind === 'both' || cat.kind === wantKind);
+                }),
+              ];
+            },
             defaultValue: '',
           },
         ]}

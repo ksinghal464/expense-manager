@@ -32,10 +32,24 @@ function todayInputValue(): string {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 }
 
+/** yyyy-mm-dd (local) -> UTC ISO instant at local midnight. */
+function dateInputToIso(dateStr: string): string {
+  return new Date(dateStr + 'T00:00:00').toISOString();
+}
+/** Exclusive upper bound: the ISO instant for the start of the day *after* dateStr. */
+function dateInputToExclusiveEndIso(dateStr: string): string {
+  const d = new Date(dateStr + 'T00:00:00');
+  d.setDate(d.getDate() + 1);
+  return d.toISOString();
+}
+
+type BreakdownType = 'expense' | 'income' | 'balance';
+
 /**
  * "By category" / "By payment method" / "By payee" card: its own timeframe
- * tabs + Expense/Income toggle, scoped to whatever account is selected above,
- * with each bar clickable through to Activity pre-filtered accordingly.
+ * tabs (with a custom date range option) + Expense/Income/Balance toggle,
+ * scoped to whatever account is selected above, with each bar clickable
+ * through to Activity pre-filtered accordingly.
  */
 function BreakdownCard({
   title,
@@ -44,6 +58,7 @@ function BreakdownCard({
   accountLabel,
   fetcher,
   buildFilter,
+  onRemove,
 }: {
   title: string;
   emptyNoun: string;
@@ -55,32 +70,52 @@ function BreakdownCard({
     accountId: string | undefined,
     type: 'expense' | 'income'
   ) => Promise<CategoryTotal[]>;
-  buildFilter: (item: CategoryTotal, from: string, type: 'expense' | 'income') => ActivityFilter;
+  buildFilter: (
+    item: CategoryTotal,
+    from: string,
+    to: string | null,
+    type: 'expense' | 'income'
+  ) => ActivityFilter;
+  onRemove?: () => void;
 }) {
   const { openActivity } = useStore();
   const [key, setKey] = useState<string>('month');
-  const [type, setType] = useState<'expense' | 'income'>('expense');
+  const [type, setType] = useState<BreakdownType>('expense');
   const [data, setData] = useState<CategoryTotal[]>([]);
+  const [customFrom, setCustomFrom] = useState('');
+  const [customTo, setCustomTo] = useState(todayInputValue());
+  const [showCustom, setShowCustom] = useState(false);
 
+  const isCustom = key === 'custom';
   const from = useMemo(() => {
+    if (isCustom) return customFrom ? dateInputToIso(customFrom) : periodStart('month');
     const preset = ALL_PRESETS.find((p) => p.key === key);
     return preset ? preset.from(Date.now()) : periodStart('month');
-  }, [key]);
+  }, [key, customFrom]); // eslint-disable-line react-hooks/exhaustive-deps
+  const to = isCustom && customFrom ? dateInputToExclusiveEndIso(customTo) : null;
 
   useEffect(() => {
+    if (isCustom && !customFrom) return; // custom picked but no date chosen yet
     let cancelled = false;
     (async () => {
-      const rows = await fetcher(from, null, accountFilter || undefined, type).catch(() => []);
+      const rows =
+        type === 'balance'
+          ? await mergeBalance(fetcher, from, to, accountFilter || undefined)
+          : await fetcher(from, to, accountFilter || undefined, type).catch(() => []);
       if (!cancelled) setData(rows);
     })();
     return () => {
       cancelled = true;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [from, type, accountFilter]);
+  }, [from, to, type, accountFilter]);
 
-  const max = data[0]?.total || 1;
-  const label = ALL_PRESETS.find((p) => p.key === key)?.label || 'This month';
+  const max = Math.max(...data.map((d) => Math.abs(d.total)), 1);
+  const label = isCustom
+    ? customFrom
+      ? `${customFrom} → ${customTo}`
+      : 'Pick a custom range'
+    : ALL_PRESETS.find((p) => p.key === key)?.label || 'This month';
 
   return (
     <section className="card">
@@ -92,16 +127,32 @@ function BreakdownCard({
             {label}
           </p>
         </div>
-        <div className="segmented small">
-          <button
-            className={type === 'expense' ? 'selected' : ''}
-            onClick={() => setType('expense')}
-          >
-            Expense
-          </button>
-          <button className={type === 'income' ? 'selected' : ''} onClick={() => setType('income')}>
-            Income
-          </button>
+        <div className="cardheadright">
+          <div className="segmented small">
+            <button
+              className={type === 'expense' ? 'selected' : ''}
+              onClick={() => setType('expense')}
+            >
+              Expense
+            </button>
+            <button
+              className={type === 'income' ? 'selected' : ''}
+              onClick={() => setType('income')}
+            >
+              Income
+            </button>
+            <button
+              className={type === 'balance' ? 'selected' : ''}
+              onClick={() => setType('balance')}
+            >
+              Balance
+            </button>
+          </div>
+          {onRemove && (
+            <button className="framehead-remove" onClick={onRemove} title="Remove widget">
+              ×
+            </button>
+          )}
         </div>
       </div>
       <div className="cattabs">
@@ -109,31 +160,92 @@ function BreakdownCard({
           <button
             key={p.key}
             className={key === p.key ? 'selected' : ''}
-            onClick={() => setKey(p.key)}
+            onClick={() => {
+              setKey(p.key);
+              setShowCustom(false);
+            }}
           >
             {p.label}
           </button>
         ))}
+        <button
+          className={isCustom ? 'selected' : ''}
+          onClick={() => {
+            setKey('custom');
+            setShowCustom(true);
+          }}
+        >
+          Custom
+        </button>
       </div>
+      {showCustom && isCustom && (
+        <div className="customrange">
+          <input type="date" value={customFrom} onChange={(e) => setCustomFrom(e.target.value)} />
+          <span>to</span>
+          <input type="date" value={customTo} onChange={(e) => setCustomTo(e.target.value)} />
+        </div>
+      )}
       {data.length ? (
         <div className="bars">
           {data.map((c) => (
             <div
               className="bar"
               key={c.id ?? 'none'}
-              onClick={() => openActivity(buildFilter(c, from, type))}
+              onClick={() =>
+                openActivity(buildFilter(c, from, to, type === 'income' ? 'income' : 'expense'))
+              }
             >
               <span>{c.name}</span>
-              <i style={{ width: `${Math.max(7, (c.total / max) * 100)}%` }}></i>
-              <b>{money(c.total)}</b>
+              <i
+                className={c.total < 0 ? 'neg' : ''}
+                style={{ width: `${Math.max(7, (Math.abs(c.total) / max) * 100)}%` }}
+              ></i>
+              <b className={type === 'balance' ? (c.total >= 0 ? 'positive' : 'negative') : ''}>
+                {money(c.total)}
+              </b>
             </div>
           ))}
         </div>
       ) : (
-        <Empty text={`No ${type} recorded for any ${emptyNoun} in this period.`} />
+        <Empty
+          text={`No ${type === 'balance' ? 'activity' : type} recorded for any ${emptyNoun} in this period.`}
+        />
       )}
     </section>
   );
+}
+
+/** Fetch expense + income breakdowns and merge into a net (income - expense) per bucket. */
+async function mergeBalance(
+  fetcher: (
+    from: string,
+    to: string | null,
+    accountId: string | undefined,
+    type: 'expense' | 'income'
+  ) => Promise<CategoryTotal[]>,
+  from: string,
+  to: string | null,
+  accountId: string | undefined
+): Promise<CategoryTotal[]> {
+  const [expenseRows, incomeRows] = await Promise.all([
+    fetcher(from, to, accountId, 'expense').catch(() => []),
+    fetcher(from, to, accountId, 'income').catch(() => []),
+  ]);
+  const map = new Map<string, CategoryTotal>();
+  const keyOf = (r: CategoryTotal) => r.id ?? `name:${r.name}`;
+  for (const r of expenseRows) {
+    const k = keyOf(r);
+    const cur = map.get(k) || { id: r.id, name: r.name, total: 0 };
+    cur.total -= r.total;
+    map.set(k, cur);
+  }
+  for (const r of incomeRows) {
+    const k = keyOf(r);
+    const cur = map.get(k) || { id: r.id, name: r.name, total: 0 };
+    cur.total += r.total;
+    map.set(k, cur);
+  }
+  return Array.from(map.values()).sort((a, b) => b.total - a.total);
 }
 
 export function Dashboard() {
@@ -149,6 +261,9 @@ export function Dashboard() {
   const [customFrom, setCustomFrom] = useState('');
   const [customTo, setCustomTo] = useState(todayInputValue());
   const [showCustom, setShowCustom] = useState(false);
+
+  // ---- on-demand breakdown widgets (category is always shown separately) ----
+  const [activeBreakdowns, setActiveBreakdowns] = useState<('method' | 'payee')[]>([]);
 
   // Seed from the bootstrap dashboard payload (all-accounts) so the default
   // widgets aren't empty for an instant before the scoped fetch resolves.
@@ -210,6 +325,11 @@ export function Dashboard() {
   const accountLabel = accountFilter
     ? accounts.find((a) => a.id === accountFilter)?.name
     : 'All accounts';
+
+  const BREAKDOWN_DEFS: Record<'method' | 'payee', { title: string; emptyNoun: string }> = {
+    method: { title: 'By payment method', emptyNoun: 'payment method' },
+    payee: { title: 'By payee', emptyNoun: 'payee' },
+  };
 
   return (
     <main>
@@ -338,44 +458,50 @@ export function Dashboard() {
         accountFilter={accountFilter}
         accountLabel={accountLabel}
         fetcher={(from, to, acct, type) => api.dashboardCategories(from, to, acct, type)}
-        buildFilter={(c, from, type) => ({
+        buildFilter={(c, from, to, type) => ({
           categoryId: c.id,
           type,
           accountId: accountFilter || undefined,
           from,
+          to,
           label: `${c.name} · ${type}`,
         })}
       />
 
-      <BreakdownCard
-        title="By payment method"
-        emptyNoun="payment method"
-        accountFilter={accountFilter}
-        accountLabel={accountLabel}
-        fetcher={(from, to, acct, type) => api.dashboardBreakdown('method', from, to, acct, type)}
-        buildFilter={(c, from, type) => ({
-          methodId: c.id || undefined,
-          type,
-          accountId: accountFilter || undefined,
-          from,
-          label: `${c.name} · ${type}`,
-        })}
-      />
+      {activeBreakdowns.map((dim) => (
+        <BreakdownCard
+          key={dim}
+          title={BREAKDOWN_DEFS[dim].title}
+          emptyNoun={BREAKDOWN_DEFS[dim].emptyNoun}
+          accountFilter={accountFilter}
+          accountLabel={accountLabel}
+          fetcher={(from, to, acct, type) => api.dashboardBreakdown(dim, from, to, acct, type)}
+          buildFilter={(c, from, to, type) => ({
+            ...(dim === 'method'
+              ? { methodId: c.id || undefined }
+              : { payeeId: c.id || undefined }),
+            type,
+            accountId: accountFilter || undefined,
+            from,
+            to,
+            label: `${c.name} · ${type}`,
+          })}
+          onRemove={() => setActiveBreakdowns((cur) => cur.filter((d) => d !== dim))}
+        />
+      ))}
 
-      <BreakdownCard
-        title="By payee"
-        emptyNoun="payee"
-        accountFilter={accountFilter}
-        accountLabel={accountLabel}
-        fetcher={(from, to, acct, type) => api.dashboardBreakdown('payee', from, to, acct, type)}
-        buildFilter={(c, from, type) => ({
-          payeeId: c.id || undefined,
-          type,
-          accountId: accountFilter || undefined,
-          from,
-          label: `${c.name} · ${type}`,
-        })}
-      />
+      {(['method', 'payee'] as const).filter((d) => !activeBreakdowns.includes(d)).length > 0 && (
+        <div className="addwidget">
+          <span>Add breakdown:</span>
+          {(['method', 'payee'] as const)
+            .filter((d) => !activeBreakdowns.includes(d))
+            .map((d) => (
+              <button key={d} onClick={() => setActiveBreakdowns((cur) => [...cur, d])}>
+                ＋ {BREAKDOWN_DEFS[d].title}
+              </button>
+            ))}
+        </div>
+      )}
 
       <section className="card">
         <div className="cardhead">

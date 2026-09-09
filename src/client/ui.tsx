@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 
 export function Overlay({
   children,
@@ -104,11 +104,16 @@ export function Segmented<T extends string>({
   );
 }
 
+export type FieldOption = { value: string; label: string };
+
 export type FieldDef = {
   key: string;
   label: string;
   type?: 'text' | 'number' | 'select';
-  options?: { value: string; label: string }[];
+  /** Static options, or a function of the current form values (for fields
+   * whose choices depend on another field, e.g. a category's valid parents
+   * depend on the selected type). */
+  options?: FieldOption[] | ((values: Record<string, string>) => FieldOption[]);
   required?: boolean;
   defaultValue?: string;
   placeholder?: string;
@@ -136,6 +141,21 @@ export function FieldsModal({
   const [saving, setSaving] = useState(false);
   const [err, setErr] = useState('');
 
+  // If a field's options depend on another field's value (e.g. a category's
+  // valid parents depend on the selected type) and the current selection is
+  // no longer one of the resolved options, clear it instead of silently
+  // keeping a now-invalid value selected.
+  useEffect(() => {
+    for (const f of fields) {
+      if (f.type !== 'select' || typeof f.options !== 'function') continue;
+      const resolved = f.options(v);
+      if (v[f.key] && !resolved.some((o) => o.value === v[f.key])) {
+        setV((cur) => ({ ...cur, [f.key]: '' }));
+      }
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [v, fields]);
+
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
     setSaving(true);
@@ -154,36 +174,44 @@ export function FieldsModal({
       <ModalHead title={title} onClose={close} />
       {err && <Err msg={err} />}
       <form className="modalform" onSubmit={submit}>
-        {fields.map((f) => (
-          <Field key={f.key} label={f.label}>
-            {f.type === 'select' ? (
-              <select
-                required={f.required}
-                value={v[f.key]}
-                onChange={(e) => setV({ ...v, [f.key]: e.target.value })}
-              >
-                {!(f.options || []).some((o) => o.value === '') && (
-                  <option value="" disabled>
-                    {f.placeholder || `Select ${f.label.replace(/\s*\*$/, '').toLowerCase()}`}
-                  </option>
-                )}
-                {(f.options || []).map((o) => (
-                  <option key={o.value} value={o.value}>
-                    {o.label}
-                  </option>
-                ))}
-              </select>
-            ) : (
-              <input
-                inputMode={f.type === 'number' ? 'decimal' : undefined}
-                required={f.required}
-                placeholder={f.placeholder}
-                value={v[f.key]}
-                onChange={(e) => setV({ ...v, [f.key]: e.target.value })}
-              />
-            )}
-          </Field>
-        ))}
+        {fields.map((f) => {
+          const resolvedOptions =
+            f.type === 'select'
+              ? typeof f.options === 'function'
+                ? f.options(v)
+                : f.options || []
+              : [];
+          return (
+            <Field key={f.key} label={f.label}>
+              {f.type === 'select' ? (
+                <select
+                  required={f.required}
+                  value={v[f.key]}
+                  onChange={(e) => setV({ ...v, [f.key]: e.target.value })}
+                >
+                  {!resolvedOptions.some((o) => o.value === '') && (
+                    <option value="" disabled>
+                      {f.placeholder || `Select ${f.label.replace(/\s*\*$/, '').toLowerCase()}`}
+                    </option>
+                  )}
+                  {resolvedOptions.map((o) => (
+                    <option key={o.value} value={o.value}>
+                      {o.label}
+                    </option>
+                  ))}
+                </select>
+              ) : (
+                <input
+                  inputMode={f.type === 'number' ? 'decimal' : undefined}
+                  required={f.required}
+                  placeholder={f.placeholder}
+                  value={v[f.key]}
+                  onChange={(e) => setV({ ...v, [f.key]: e.target.value })}
+                />
+              )}
+            </Field>
+          );
+        })}
         <SaveButton saving={saving} label="Save" />
       </form>
     </Overlay>

@@ -1073,3 +1073,31 @@ input[type='file'] {
 .datepresets button:hover {
   background: #f1f5f9;
 }
+
+/* --- BreakdownCard: header with a 3-way toggle + optional remove button --- */
+.cardheadright {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: none;
+}
+.framehead-remove {
+  border: 0;
+  background: none;
+  color: #b0bac8;
+  font-size: 18px;
+  line-height: 1;
+  padding: 4px 6px;
+}
+.framehead-remove:hover {
+  color: #6b7789;
+}
+.bar i.neg {
+  background: #f7d4d8;
+}
+.bar i.neg:after {
+  background: #d36772;
+}
+.bar b.negative {
+  color: #c23b47;
+}
