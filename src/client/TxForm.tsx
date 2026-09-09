@@ -131,7 +131,6 @@ export function TxForm({
         setCategoryId(t.category_id || '');
         setMethodId(t.payment_method_id || '');
         setPayee(t.payee_name || '');
-        setDescription(t.description ? `Refund: ${t.description}` : 'Refund');
         setRefundsTxId(refundOf);
       })
       .catch((e) => setErr(e instanceof Error ? e.message : 'Unable to load refund target'));
