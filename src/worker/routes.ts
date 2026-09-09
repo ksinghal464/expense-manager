@@ -1,6 +1,6 @@
 import { Env, HttpError, json, textBody, readJson, readBody, corsHeaders } from './http';
 import { now, id, audit, exists, getEntity, toIso, toMinorStrict, clampInt } from './db';
-import { buildDashboard } from './aggregate';
+import { buildDashboard, rangeStats, categoryBreakdown } from './aggregate';
 import { runRecurring, advanceDue } from './recurring';
 import { importCsv, exportCsv, exportJson, restoreBackup } from './io';
 import {
@@ -26,12 +26,16 @@ export const INSERT_TX = `INSERT INTO transactions
    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`;
 
 const TX_SELECT = `SELECT t.*, a.name AS account_name, c.name AS category_name, p.name AS payee_name,
-  pm.name AS payment_method_name
+  pm.name AS payment_method_name, parent.description AS refund_of_description,
+  parent.occurred_at AS refund_of_occurred_at,
+  (SELECT COALESCE(SUM(r.amount_minor),0) FROM transactions r
+    WHERE r.refunds_transaction_id=t.id AND r.deleted_at IS NULL) AS refunded_minor
   FROM transactions t
   JOIN accounts a ON a.id=t.account_id
   LEFT JOIN categories c ON c.id=t.category_id
   LEFT JOIN payees p ON p.id=t.payee_id
-  LEFT JOIN payment_methods pm ON pm.id=t.payment_method_id`;
+  LEFT JOIN payment_methods pm ON pm.id=t.payment_method_id
+  LEFT JOIN transactions parent ON parent.id=t.refunds_transaction_id`;
 
 function str(b: Record<string, unknown>, k: string): string {
   const v = b[k];
@@ -107,7 +111,7 @@ async function txBase(env: Env, txId: string): Promise<Row | null> {
 async function txDetail(env: Env, txId: string): Promise<Row | null> {
   const t = await txBase(env, txId);
   if (!t) return null;
-  const [splits, refunds, tags, refunded] = await Promise.all([
+  const [splits, refunds, tags] = await Promise.all([
     env.DB.prepare(
       `SELECT s.*, c.name AS category_name FROM transaction_splits s LEFT JOIN categories c ON c.id=s.category_id
        WHERE s.transaction_id=? AND s.deleted_at IS NULL ORDER BY s.created_at`
@@ -115,24 +119,19 @@ async function txDetail(env: Env, txId: string): Promise<Row | null> {
       .bind(txId)
       .all<Row>(),
     env.DB.prepare(
-      `SELECT id, occurred_at, amount_minor, description, account_id FROM transactions
-       WHERE refunds_transaction_id=? AND deleted_at IS NULL ORDER BY occurred_at`
+      `SELECT r.id, r.occurred_at, r.amount_minor, r.description, r.account_id, a.name AS account_name
+       FROM transactions r JOIN accounts a ON a.id=r.account_id
+       WHERE r.refunds_transaction_id=? AND r.deleted_at IS NULL ORDER BY r.occurred_at`
     )
       .bind(txId)
       .all<Row>(),
     tagsFor(env, txId),
-    env.DB.prepare(
-      `SELECT COALESCE(SUM(amount_minor),0) AS s FROM transactions WHERE refunds_transaction_id=? AND deleted_at IS NULL`
-    )
-      .bind(txId)
-      .first<Row>(),
   ]);
   return {
     ...t,
     splits: splits.results,
     refunds: refunds.results,
     tags,
-    refunded_minor: refunded?.s ?? 0,
   };
 }
 
@@ -1340,6 +1339,18 @@ export async function route(request: Request, url: URL, env: Env): Promise<Respo
   if (m === 'GET' && p === '/api/bootstrap') return res(await handleBootstrap(env));
   if (m === 'GET' && p === '/api/search-options') return res(await handleSearchOptions(env, url));
   if (m === 'GET' && p === '/api/dashboard') return res(json(await buildDashboard(env)));
+  if (m === 'GET' && p === '/api/dashboard/frame') {
+    const from = url.searchParams.get('from');
+    if (!from) throw new HttpError(400, '"from" is required');
+    const to = url.searchParams.get('to');
+    return res(json(await rangeStats(env, toIso(from), to ? toIso(to) : null)));
+  }
+  if (m === 'GET' && p === '/api/dashboard/categories') {
+    const from = url.searchParams.get('from');
+    if (!from) throw new HttpError(400, '"from" is required');
+    const to = url.searchParams.get('to');
+    return res(json(await categoryBreakdown(env, toIso(from), to ? toIso(to) : null)));
+  }
   if (m === 'GET' && p === '/api/audit') return res(await handleAudit(env, url));
 
   if (p === '/api/transactions') {

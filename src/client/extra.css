@@ -611,3 +611,197 @@ input[type='file'] {
     flex-wrap: wrap;
   }
 }
+
+/* --- tx row: refund links, refund badge, amount+balance column --- */
+.txreflink {
+  display: block;
+  font-size: 11px;
+  color: #b8842f;
+  margin-top: 3px;
+}
+.txreflink.clickable {
+  cursor: pointer;
+  text-decoration: underline;
+}
+.txreflink.clickable:hover {
+  color: #8a621f;
+}
+.txrefbadge {
+  display: block;
+  font-size: 11px;
+  color: #14784f;
+  margin-top: 3px;
+  font-weight: 700;
+}
+.txamountcol {
+  flex: none;
+  text-align: right;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.txamountcol b {
+  font-size: 15px;
+  white-space: nowrap;
+}
+.txamountcol small {
+  font-size: 10px;
+  color: #9aa6b6;
+  white-space: nowrap;
+}
+
+/* --- activity drill-down filter chip --- */
+.filterchip {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  background: #eef4fb;
+  border: 1px solid #d7e6f8;
+  color: #1f4d80;
+  padding: 10px 14px;
+  border-radius: 12px;
+  font-size: 13px;
+  font-weight: 650;
+  margin-bottom: 10px;
+}
+.filterchip .outline {
+  padding: 6px 11px;
+  font-size: 12px;
+}
+
+/* --- dashboard timeframe widgets --- */
+.framegrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(210px, 1fr));
+  gap: 14px;
+  margin-bottom: 18px;
+}
+.framebox {
+  background: #fff;
+  border: 1px solid #e5eaf0;
+  border-radius: 18px;
+  padding: 16px;
+  box-shadow: 0 3px 12px #1720330a;
+}
+.framehead {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 10px;
+}
+.framehead b {
+  font-size: 13px;
+  color: #33415a;
+}
+.framehead button {
+  border: 0;
+  background: none;
+  color: #b0bac8;
+  font-size: 16px;
+  line-height: 1;
+}
+.framehead button:hover {
+  color: #6b7789;
+}
+.framerow {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  width: 100%;
+  border: 0;
+  background: none;
+  padding: 5px 0;
+  font-size: 13px;
+  color: #4a586c;
+  text-align: left;
+}
+.framerow.balance {
+  border-top: 1px dashed #e5eaf0;
+  margin-top: 4px;
+  padding-top: 9px;
+  font-weight: 750;
+}
+.framerow .amt-income {
+  color: #16845a;
+  font-weight: 700;
+}
+.framerow .amt-expense {
+  color: #c23b47;
+  font-weight: 700;
+}
+.addwidget {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+  margin-bottom: 18px;
+}
+.addwidget > span {
+  font-size: 12px;
+  color: #7b8797;
+  font-weight: 700;
+}
+.addwidget button {
+  border: 1px dashed #c7d2e0;
+  background: #fff;
+  color: #33415a;
+  padding: 7px 12px;
+  border-radius: 10px;
+  font-size: 12px;
+  font-weight: 650;
+}
+.customrange {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+  background: #fbfcfd;
+  border: 1px solid #e5eaf0;
+  border-radius: 12px;
+  padding: 10px;
+  margin-bottom: 18px;
+}
+.customrange input {
+  border: 1px solid #d8e0e9;
+  border-radius: 9px;
+  padding: 8px 9px;
+  font-size: 12px;
+}
+.cattabs {
+  display: flex;
+  gap: 6px;
+  overflow: auto;
+  margin-bottom: 12px;
+}
+.cattabs button {
+  border: 1px solid #dce3eb;
+  background: #fff;
+  color: #64748b;
+  padding: 6px 11px;
+  border-radius: 10px;
+  font-size: 11px;
+  white-space: nowrap;
+}
+.cattabs button.selected {
+  background: #17263a;
+  color: #fff;
+  border-color: #17263a;
+}
+.bar {
+  cursor: pointer;
+}
+.balance {
+  cursor: pointer;
+}
+
+/* --- refund link rows (transaction detail) --- */
+.refundlink {
+  width: 100%;
+  border: 1px solid #eef2f6;
+  cursor: pointer;
+  text-align: left;
+}
+.refundlink:hover {
+  background: #f4f8fc;
+}

@@ -13,6 +13,15 @@ import type {
 
 export type Page = 'dashboard' | 'activity' | 'recurring' | 'manage';
 
+export type ActivityFilter = {
+  type?: 'expense' | 'income';
+  accountId?: string;
+  categoryId?: string | null;
+  from?: string;
+  to?: string | null;
+  label?: string;
+};
+
 export type Modal =
   | { kind: 'tx' }
   | { kind: 'editTx'; id: string }
@@ -40,6 +49,9 @@ export interface Store {
   page: Page;
   modal: Modal;
   go: (p: Page) => void;
+  openActivity: (filter: ActivityFilter) => void;
+  pendingActivityFilter: ActivityFilter | null;
+  clearActivityFilter: () => void;
   open: (m: Modal) => void;
   close: () => void;
   refresh: () => Promise<void>;
@@ -69,6 +81,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [page, setPage] = useState<Page>('dashboard');
+  const [pendingActivityFilter, setPendingActivityFilter] = useState<ActivityFilter | null>(null);
   const [modal, setModal] = useState<Modal>(null);
   const [notify, setNotify] = useState('');
 
@@ -114,6 +127,13 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     window.setTimeout(() => setNotify((cur) => (cur === msg ? '' : cur)), 2600);
   }, []);
 
+  const openActivity = useCallback((filter: ActivityFilter) => {
+    setPendingActivityFilter(filter);
+    setModal(null);
+    setPage('activity');
+  }, []);
+  const clearActivityFilter = useCallback(() => setPendingActivityFilter(null), []);
+
   const value = useMemo<Store>(
     () => ({
       loading,
@@ -129,6 +149,9 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       page,
       modal,
       go: setPage,
+      openActivity,
+      pendingActivityFilter,
+      clearActivityFilter,
       open: setModal,
       close: () => setModal(null),
       refresh,
@@ -148,6 +171,9 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       dash,
       page,
       modal,
+      openActivity,
+      pendingActivityFilter,
+      clearActivityFilter,
       refresh,
       toast,
       notify,

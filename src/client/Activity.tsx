@@ -7,11 +7,31 @@ import { Empty } from './ui';
 import { TxRow } from './TxRow';
 
 export function Activity() {
-  const { transactions, open } = useStore();
+  const { transactions, accounts, open, pendingActivityFilter, clearActivityFilter } = useStore();
   const [query, setQuery] = useState('');
   const [type, setType] = useState<'all' | 'expense' | 'income'>('all');
+  const [accountId, setAccountId] = useState('');
+  const [categoryId, setCategoryId] = useState<string | null | undefined>(undefined);
+  const [from, setFrom] = useState('');
+  const [to, setTo] = useState<string | null>(null);
+  const [filterLabel, setFilterLabel] = useState('');
   const debounced = useDebounce(query, 180);
   const [options, setOptions] = useState<SearchOptions | null>(null);
+
+  // Apply a filter handed off from the Dashboard (e.g. "this week's expenses",
+  // an account balance, or a category bar), then clear it so it doesn't stick
+  // around on the next manual visit to Activity.
+  useEffect(() => {
+    if (!pendingActivityFilter) return;
+    const f = pendingActivityFilter;
+    setType(f.type || 'all');
+    setAccountId(f.accountId || '');
+    setCategoryId(f.categoryId);
+    setFrom(f.from || '');
+    setTo(f.to ?? null);
+    setFilterLabel(f.label || '');
+    clearActivityFilter();
+  }, [pendingActivityFilter, clearActivityFilter]);
 
   // server-side search suggestions while typing
   useEffect(() => {
@@ -25,10 +45,41 @@ export function Activity() {
       .catch(() => setOptions(null));
   }, [debounced]);
 
+  // Running balance (total opening balances + cumulative net so far), computed
+  // over every loaded transaction in chronological order regardless of the
+  // filters/search currently applied, then looked up per row below.
+  const balanceById = useMemo(() => {
+    const openingTotal = accounts.reduce((s, a) => s + a.opening_balance_minor, 0);
+    const asc = [...transactions].sort(
+      (a, b) =>
+        a.occurred_at.localeCompare(b.occurred_at) || a.created_at.localeCompare(b.created_at)
+    );
+    const map: Record<string, number> = {};
+    let running = openingTotal;
+    for (const t of asc) {
+      running += t.transaction_type === 'income' ? t.amount_minor : -t.amount_minor;
+      map[t.id] = running;
+    }
+    return map;
+  }, [transactions, accounts]);
+
+  const clearAllFilters = () => {
+    setType('all');
+    setAccountId('');
+    setCategoryId(undefined);
+    setFrom('');
+    setTo(null);
+    setFilterLabel('');
+  };
+
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
     let list = transactions;
     if (type !== 'all') list = list.filter((t) => t.transaction_type === type);
+    if (accountId) list = list.filter((t) => t.account_id === accountId);
+    if (categoryId !== undefined) list = list.filter((t) => (t.category_id || null) === categoryId);
+    if (from) list = list.filter((t) => t.occurred_at >= from);
+    if (to) list = list.filter((t) => t.occurred_at < to);
     if (!q) return list;
     return list.filter((t) =>
       [t.description, t.note, t.category_name, t.account_name, t.payment_method_name, t.payee_name]
@@ -37,7 +88,7 @@ export function Activity() {
         .toLowerCase()
         .includes(q)
     );
-  }, [transactions, query, type]);
+  }, [transactions, query, type, accountId, categoryId, from, to]);
 
   const groups: [string, string[]][] = options
     ? [
@@ -49,6 +100,8 @@ export function Activity() {
         ['Tags', (options.tags || []).map((x) => x.name)],
       ]
     : [];
+
+  const hasDrillFilter = Boolean(accountId || categoryId !== undefined || from || to);
 
   return (
     <main>
@@ -85,6 +138,15 @@ export function Activity() {
         )}
       </div>
 
+      {hasDrillFilter && (
+        <div className="filterchip">
+          <span>Filtered: {filterLabel || 'custom view'}</span>
+          <button className="outline" onClick={clearAllFilters}>
+            Clear filter
+          </button>
+        </div>
+      )}
+
       <div className="filterline">
         <span>{filtered.length} entries</span>
         <div className="segmented">
@@ -104,7 +166,13 @@ export function Activity() {
 
       <section className="card activity-card">
         {filtered.map((t) => (
-          <TxRow key={t.id} t={t} onClick={() => open({ kind: 'detail', id: t.id })} />
+          <TxRow
+            key={t.id}
+            t={t}
+            balance={balanceById[t.id]}
+            onClick={() => open({ kind: 'detail', id: t.id })}
+            onOpenRef={(refId) => open({ kind: 'detail', id: refId })}
+          />
         ))}
         {!filtered.length && <Empty text="No matching transactions." />}
       </section>

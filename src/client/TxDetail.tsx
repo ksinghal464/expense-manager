@@ -110,13 +110,40 @@ export function TxDetail({
         </section>
       ) : null}
 
+      {tx.refunds_transaction_id ? (
+        <section className="mini">
+          <h4>Refund of</h4>
+          <button
+            className="splitview refundlink"
+            onClick={() => open({ kind: 'detail', id: tx.refunds_transaction_id! })}
+          >
+            <span>
+              {tx.refund_of_description || 'Expense'}
+              {tx.refund_of_occurred_at ? ` · ${fmtDateTime(tx.refund_of_occurred_at)}` : ''}
+            </span>
+            <b>View →</b>
+          </button>
+        </section>
+      ) : null}
+
       {tx.refunded_minor ? (
         <section className="mini">
           <h4>Refunded</h4>
+          {(tx.refunds || []).map((r: any) => (
+            <button
+              className="splitview refundlink"
+              key={r.id}
+              onClick={() => open({ kind: 'detail', id: r.id })}
+            >
+              <span>
+                {r.description || 'Refund'} · {fmtDateTime(r.occurred_at)}
+                {r.account_name ? ` · ${r.account_name}` : ''}
+              </span>
+              <b className="positive">+{money(r.amount_minor)}</b>
+            </button>
+          ))}
           <div className="splitview">
-            <span>
-              {tx.refunds?.length || 0} refund{tx.refunds?.length === 1 ? '' : 's'}
-            </span>
+            <span>Total refunded</span>
             <b className="positive">+{money(tx.refunded_minor)}</b>
           </div>
         </section>

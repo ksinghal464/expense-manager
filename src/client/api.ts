@@ -74,6 +74,14 @@ export const api = {
   health: () => req<{ ok: boolean }>('/api/health'),
   bootstrap: () => req<Bootstrap>('/api/bootstrap'),
   dashboard: () => req<Dashboard>('/api/dashboard'),
+  dashboardFrame: (from: string, to?: string | null) =>
+    req<{ income: number; expense: number; refunded: number }>(
+      `/api/dashboard/frame?${new URLSearchParams({ from, ...(to ? { to } : {}) })}`
+    ),
+  dashboardCategories: (from: string, to?: string | null) =>
+    req<{ id: string | null; name: string; total: number }[]>(
+      `/api/dashboard/categories?${new URLSearchParams({ from, ...(to ? { to } : {}) })}`
+    ),
   searchOptions: (q: string) =>
     req<SearchOptions>(`/api/search-options?q=${encodeURIComponent(q)}`),
 

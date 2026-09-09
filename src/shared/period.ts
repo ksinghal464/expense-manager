@@ -5,7 +5,7 @@
  */
 export const IST_OFFSET_MS = 5.5 * 3600 * 1000; // +05:30
 
-export type PeriodKind = 'week' | 'month' | 'year';
+export type PeriodKind = 'day' | 'week' | 'month' | 'year';
 
 /**
  * Start of the current period (weeks start Monday), computed in IST
@@ -19,11 +19,21 @@ export function periodStart(kind: PeriodKind, nowMs: number = Date.now()): strin
   let startWall: Date;
   if (kind === 'year') startWall = new Date(Date.UTC(y, 0, 1));
   else if (kind === 'month') startWall = new Date(Date.UTC(y, m, 1));
+  else if (kind === 'day') startWall = new Date(Date.UTC(y, m, d));
   else {
     const dow = w.getUTCDay(); // 0=Sun .. 6=Sat
     const sinceMonday = (dow + 6) % 7;
     startWall = new Date(Date.UTC(y, m, d - sinceMonday));
   }
+  return new Date(startWall.getTime() - IST_OFFSET_MS).toISOString();
+}
+
+/** UTC ISO instant for "N days ago" (wall-clock midnight IST), inclusive of today. */
+export function daysAgo(n: number, nowMs: number = Date.now()): string {
+  const w = new Date(nowMs + IST_OFFSET_MS);
+  const startWall = new Date(
+    Date.UTC(w.getUTCFullYear(), w.getUTCMonth(), w.getUTCDate() - (n - 1))
+  );
   return new Date(startWall.getTime() - IST_OFFSET_MS).toISOString();
 }
 

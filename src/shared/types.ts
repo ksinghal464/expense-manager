@@ -81,6 +81,8 @@ export interface TxView extends TxRow {
   category_name: string | null;
   payee_name: string | null;
   payment_method_name: string | null;
+  refund_of_description?: string | null;
+  refund_of_occurred_at?: string | null;
   tags?: string[];
   splits?: SplitRow[];
   refunds?: TxView[];
@@ -158,11 +160,25 @@ export interface Bootstrap {
   recurring: RecurringRule[];
 }
 
+export interface DashboardFrame {
+  key: string;
+  label: string;
+  from: string;
+  to: string | null;
+  income: number;
+  expense: number;
+  refunded: number;
+}
+
+export interface CategoryTotal {
+  id: string | null;
+  name: string;
+  total: number;
+}
+
 export interface Dashboard {
-  week: { income: number; expense: number };
-  month: { income: number; expense: number };
-  ytd: { income: number; expense: number };
-  categories: Record<string, number>;
+  frames: DashboardFrame[];
+  categories: CategoryTotal[];
   balances: Account[];
 }
 

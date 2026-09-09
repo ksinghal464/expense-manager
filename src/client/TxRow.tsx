@@ -1,9 +1,20 @@
-import { signedMoney, fmtDateTime } from './lib';
+import { signedMoney, fmtDateTime, money } from './lib';
 import type { TxView } from '../shared/types';
 
-export function TxRow({ t, onClick }: { t: TxView; onClick: () => void }) {
+export function TxRow({
+  t,
+  onClick,
+  onOpenRef,
+  balance,
+}: {
+  t: TxView;
+  onClick: () => void;
+  onOpenRef?: (id: string) => void;
+  balance?: number;
+}) {
   const isIncome = t.transaction_type === 'income';
   const isRefund = !!t.refunds_transaction_id;
+  const hasRefunds = !isRefund && (t.refunded_minor || 0) > 0;
   return (
     <button className={`tx${isRefund ? ' refund' : ''}`} onClick={onClick}>
       <div className="avatar">
@@ -14,18 +25,39 @@ export function TxRow({ t, onClick }: { t: TxView; onClick: () => void }) {
         <span>
           {t.category_name || 'Uncategorized'}
           {t.payee_name ? ` · ${t.payee_name}` : ''}
-          {isRefund ? ' · Refund' : ''}
           {t.is_split_parent ? ' · Split' : ''}
         </span>
+        {isRefund && t.refunds_transaction_id && (
+          <span
+            className={`txreflink${onOpenRef ? ' clickable' : ''}`}
+            onClick={
+              onOpenRef
+                ? (e) => {
+                    e.stopPropagation();
+                    onOpenRef(t.refunds_transaction_id!);
+                  }
+                : undefined
+            }
+          >
+            ↩ Refund of {t.refund_of_description || 'expense'}
+            {t.refund_of_occurred_at ? ` · ${fmtDateTime(t.refund_of_occurred_at)}` : ''}
+          </span>
+        )}
+        {hasRefunds && (
+          <span className="txrefbadge">↩ Refunded {money(t.refunded_minor || 0)}</span>
+        )}
         <small>
           {fmtDateTime(t.occurred_at)} · {t.account_name}
           {t.payment_method_name ? ` · ${t.payment_method_name}` : ''}
           {t.tags && t.tags.length ? ` · #${t.tags.join(' #')}` : ''}
         </small>
       </div>
-      <b className={isIncome ? 'positive' : ''}>
-        {signedMoney(t.amount_minor, t.transaction_type)}
-      </b>
+      <div className="txamountcol">
+        <b className={isIncome ? 'positive' : ''}>
+          {signedMoney(t.amount_minor, t.transaction_type)}
+        </b>
+        {balance !== undefined && <small>Bal {money(balance)}</small>}
+      </div>
     </button>
   );
 }
