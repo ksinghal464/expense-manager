@@ -70,3 +70,28 @@ describe('csvEscape', () => {
     expect(csvEscape('a"b')).toBe('"a""b"');
   });
 });
+
+describe('missing optional columns default to empty string', () => {
+  // Regression test: a CSV missing the "Tag" and "Payment Method" columns
+  // previously produced `undefined` for those fields, which crashed
+  // downstream code doing `.trim()` / `.split(',')` on them.
+  const minimalHeader = 'Date,Amount,Category,Account';
+  const minimalSample = [minimalHeader, '01-01-2026,-100.00,Food,Cash'].join('\n');
+
+  it('defaults every optional column to "" instead of undefined', () => {
+    const { rows, errors } = parseImportCsv(minimalSample);
+    expect(errors).toHaveLength(0);
+    expect(rows.length).toBe(1);
+    expect(rows[0].tag).toBe('');
+    expect(rows[0].payment_method).toBe('');
+    expect(rows[0].payee).toBe('');
+    expect(rows[0].split_total).toBe('');
+  });
+
+  it('normalizeRows and grouping do not throw on minimal rows', () => {
+    const { rows } = parseImportCsv(minimalSample);
+    const norm = normalizeRows(rows);
+    expect(() => groupRows(norm)).not.toThrow();
+    expect(norm[0].group).toBeNull();
+  });
+});

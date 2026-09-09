@@ -81,6 +81,29 @@ const EMPTY: Bootstrap = {
   recurring: [],
 };
 
+const PAGE_SIZE = 500;
+const MAX_PAGES = 40; // hard safety cap (~20k transactions) against unbounded fetch loops
+
+/**
+ * Fetch every transaction by paging through the server's limit/offset API
+ * instead of relying on a single capped request. Previously the app only
+ * ever loaded the newest 500 transactions, silently hiding older ones from
+ * search, filters, running balances, and dashboards once that cap was
+ * exceeded.
+ */
+async function fetchAllTransactions(): Promise<TxView[]> {
+  const all: TxView[] = [];
+  for (let page = 0; page < MAX_PAGES; page++) {
+    const batch = await api.transactions({
+      limit: String(PAGE_SIZE),
+      offset: String(page * PAGE_SIZE),
+    });
+    all.push(...batch);
+    if (batch.length < PAGE_SIZE) break;
+  }
+  return all;
+}
+
 export function StoreProvider({ children }: { children: React.ReactNode }) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -103,7 +126,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       const [b, d, t] = await Promise.all([
         api.bootstrap(),
         api.dashboard(),
-        api.transactions({ limit: '500' }),
+        fetchAllTransactions(),
       ]);
       const src: Bootstrap = b || EMPTY;
       setAccounts(src.accounts || []);

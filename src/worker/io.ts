@@ -483,43 +483,58 @@ export async function exportJson(env: Env) {
   const [
     accounts,
     categories,
-    paymentMethods,
+    payment_methods,
     payees,
     tags,
+    transfers,
+    recurring_rules,
     transactions,
-    splits,
+    transaction_splits,
+    transaction_tags,
     notes,
-    recurring,
-    transactionTags,
     attachments,
+    description_suggestions,
   ] = await Promise.all([
     q('SELECT * FROM accounts WHERE deleted_at IS NULL'),
     q('SELECT * FROM categories WHERE deleted_at IS NULL'),
     q('SELECT * FROM payment_methods WHERE deleted_at IS NULL'),
     q('SELECT * FROM payees WHERE deleted_at IS NULL'),
     q('SELECT * FROM tags WHERE deleted_at IS NULL'),
+    q('SELECT * FROM transfers WHERE deleted_at IS NULL'),
+    q('SELECT * FROM recurring_rules WHERE deleted_at IS NULL'),
     q('SELECT * FROM transactions WHERE deleted_at IS NULL'),
     q('SELECT * FROM transaction_splits WHERE deleted_at IS NULL'),
-    q('SELECT * FROM notes WHERE deleted_at IS NULL'),
-    q('SELECT * FROM recurring_rules WHERE deleted_at IS NULL'),
     q('SELECT transaction_id, tag_id FROM transaction_tags'),
+    q('SELECT * FROM notes WHERE deleted_at IS NULL'),
     q('SELECT * FROM attachments WHERE deleted_at IS NULL'),
+    q('SELECT * FROM description_suggestions'),
   ]);
   return {
     schema: 'expense-manager/1',
     exportedAt: now(),
+    // Keyed by actual table name (matching RESTORE_ORDER below) so a backup
+    // this app produced can always be restored by this app — a previous
+    // version used different key names here (e.g. "paymentMethods",
+    // "splits", "recurring", "transactionTags") which restoreBackup's
+    // table-name lookups silently ignored, dropping those tables on restore.
+    //
+    // Deliberately NOT included: `settings` (OAuth tokens, Drive file id,
+    // backup timestamps/state) and `audit_log` (append-only change history)
+    // — neither should be overwritten by restoring a data backup.
     data: {
       accounts,
       categories,
-      paymentMethods,
+      payment_methods,
       payees,
       tags,
+      transfers,
+      recurring_rules,
       transactions,
-      splits,
+      transaction_splits,
+      transaction_tags,
       notes,
-      recurring,
-      transactionTags,
       attachments,
+      description_suggestions,
     },
   };
 }
@@ -559,6 +574,21 @@ const RESTORE_ORDER: [string, string[]][] = [
   ],
   ['payees', ['id', 'name', 'address', 'is_active', 'created_at', 'updated_at', 'deleted_at']],
   ['tags', ['id', 'name', 'created_at', 'updated_at', 'deleted_at']],
+  [
+    'transfers',
+    [
+      'id',
+      'from_account_id',
+      'to_account_id',
+      'amount_minor',
+      'occurred_at',
+      'description',
+      'note',
+      'created_at',
+      'updated_at',
+      'deleted_at',
+    ],
+  ],
   [
     'recurring_rules',
     [
@@ -600,6 +630,7 @@ const RESTORE_ORDER: [string, string[]][] = [
       'refunds_transaction_id',
       'parent_transaction_id',
       'recurring_rule_id',
+      'transfer_id',
       'is_split_parent',
       'created_at',
       'updated_at',
@@ -651,6 +682,10 @@ const RESTORE_ORDER: [string, string[]][] = [
       'deleted_at',
     ],
   ],
+  [
+    'description_suggestions',
+    ['id', 'description', 'usage_count', 'last_used_at', 'created_at', 'updated_at'],
+  ],
 ];
 
 /** Columns that must be present and non-null on every row of a table, mirroring the NOT NULL columns in migrations/0001_initial.sql (as evolved by later migrations). */
@@ -660,6 +695,7 @@ const REQUIRED_COLS: Record<string, string[]> = {
   payment_methods: ['id', 'account_id', 'name'],
   payees: ['id', 'name'],
   tags: ['id', 'name'],
+  transfers: ['id', 'from_account_id', 'to_account_id', 'amount_minor', 'occurred_at'],
   recurring_rules: [
     'id',
     'name',
@@ -675,11 +711,16 @@ const REQUIRED_COLS: Record<string, string[]> = {
   transaction_tags: ['transaction_id', 'tag_id'],
   notes: ['id', 'transaction_id'],
   attachments: ['id', 'transaction_id', 'provider', 'external_file_id', 'file_name', 'mime_type'],
+  description_suggestions: ['id', 'description', 'usage_count', 'last_used_at'],
 };
 
 /** FK columns that, when present, must reference a row id present elsewhere in the same backup payload. */
 const FK_CHECKS: Record<string, [column: string, targetTable: string][]> = {
   payment_methods: [['account_id', 'accounts']],
+  transfers: [
+    ['from_account_id', 'accounts'],
+    ['to_account_id', 'accounts'],
+  ],
   recurring_rules: [
     ['account_id', 'accounts'],
     ['payment_method_id', 'payment_methods'],
@@ -694,6 +735,7 @@ const FK_CHECKS: Record<string, [column: string, targetTable: string][]> = {
     ['recurring_rule_id', 'recurring_rules'],
     ['refunds_transaction_id', 'transactions'],
     ['parent_transaction_id', 'transactions'],
+    ['transfer_id', 'transfers'],
   ],
   transaction_splits: [
     ['transaction_id', 'transactions'],
