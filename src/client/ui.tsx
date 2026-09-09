@@ -1,4 +1,5 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
+import type { Category } from '../shared/types';
 
 export function Overlay({
   children,
@@ -54,6 +55,143 @@ export function Field({ label, children }: { label: string; children: React.Reac
 
 export function Empty({ text }: { text: string }) {
   return <div className="empty">{text}</div>;
+}
+
+/**
+ * Category picker used by every form that assigns a category: a boxed
+ * button showing the current selection (bold parent › child) that opens a
+ * floating panel grouping categories by parent. With more than a handful of
+ * categories a live search box appears at the top of the panel so picking
+ * one doesn't require scrolling through the whole list — typing filters
+ * both root categories and their children (a root stays visible if it or
+ * any of its children match).
+ */
+export function CategoryPicker({
+  label = 'Category',
+  required,
+  categories,
+  value,
+  onChange,
+  placeholder = 'Select category',
+  noneLabel,
+}: {
+  label?: string;
+  required?: boolean;
+  /** Already filtered to whatever's relevant (e.g. by expense/income kind). */
+  categories: Category[];
+  value: string;
+  onChange: (id: string) => void;
+  placeholder?: string;
+  /** If set, shows a top "None" row that clears the selection. */
+  noneLabel?: string;
+}) {
+  const [open, setOpen] = useState(false);
+  const [query, setQuery] = useState('');
+  const searchRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    setQuery('');
+    const t = window.setTimeout(() => searchRef.current?.focus(), 0);
+    return () => window.clearTimeout(t);
+  }, [open]);
+
+  const roots = useMemo(() => categories.filter((c) => !c.parent_id), [categories]);
+  const selectedLabel = useMemo(() => {
+    if (!value) return '';
+    const c = categories.find((x) => x.id === value);
+    if (!c) return '';
+    if (!c.parent_id) return c.name;
+    const parent = categories.find((x) => x.id === c.parent_id);
+    return parent ? `${parent.name} › ${c.name}` : c.name;
+  }, [value, categories]);
+
+  const q = query.trim().toLowerCase();
+  const matches = (name: string) => !q || name.toLowerCase().includes(q);
+  const noneVisible = !!noneLabel && matches(noneLabel);
+  const visibleRoots = roots.filter(
+    (r) => matches(r.name) || categories.some((c) => c.parent_id === r.id && matches(c.name))
+  );
+
+  return (
+    <div className="field relative">
+      <span>
+        {label}
+        {required ? ' *' : ''}
+      </span>
+      <button type="button" className="picker" onClick={() => setOpen((v) => !v)}>
+        <span className={selectedLabel ? '' : 'placeholder'}>{selectedLabel || placeholder}</span>
+        <span>⌄</span>
+      </button>
+      {open && (
+        <div className="pickerpanel">
+          {categories.length > 8 && (
+            <input
+              ref={searchRef}
+              className="pickersearch"
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Escape') setOpen(false);
+              }}
+              placeholder="Search categories…"
+            />
+          )}
+          {noneVisible && (
+            <div className="catsection">
+              <button
+                type="button"
+                className={`catpick rootpick${value ? '' : ' selected'}`}
+                onClick={() => {
+                  onChange('');
+                  setOpen(false);
+                }}
+              >
+                <b>{noneLabel}</b>
+              </button>
+            </div>
+          )}
+          {visibleRoots.map((r) => {
+            const rootMatches = matches(r.name);
+            const children = categories.filter(
+              (c) => c.parent_id === r.id && (rootMatches || matches(c.name))
+            );
+            return (
+              <div className="catsection" key={r.id}>
+                <button
+                  type="button"
+                  className={`catpick rootpick${value === r.id ? ' selected' : ''}`}
+                  onClick={() => {
+                    onChange(r.id);
+                    setOpen(false);
+                  }}
+                >
+                  <b>{r.name}</b>
+                  <span>{r.kind}</span>
+                </button>
+                {children.map((c) => (
+                  <button
+                    type="button"
+                    key={c.id}
+                    className={`catpick childpick${value === c.id ? ' selected' : ''}`}
+                    onClick={() => {
+                      onChange(c.id);
+                      setOpen(false);
+                    }}
+                  >
+                    {c.name}
+                  </button>
+                ))}
+              </div>
+            );
+          })}
+          {!visibleRoots.length && !noneVisible && (
+            <p className="popupempty">No matching categories</p>
+          )}
+        </div>
+      )}
+    </div>
+  );
 }
 
 export function Err({ msg }: { msg: string }) {

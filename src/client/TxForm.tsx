@@ -13,7 +13,7 @@ import {
   MAX_ATTACHMENT_BYTES,
   fmtDateTime,
 } from './lib';
-import { Field, SaveButton, Err } from './ui';
+import { Field, SaveButton, Err, CategoryPicker } from './ui';
 import type {
   Category,
   PaymentMethod,
@@ -71,7 +71,6 @@ export function TxForm({
   const [refundsTxId, setRefundsTxId] = useState('');
   const [tagSel, setTagSel] = useState<string[]>([]);
   const [tagInput, setTagInput] = useState('');
-  const [catOpen, setCatOpen] = useState(false);
   const [descOpen, setDescOpen] = useState(false);
   const [splits, setSplits] = useState<SplitDraft[]>([]);
   const [showAdvanced, setShowAdvanced] = useState(false);
@@ -155,14 +154,6 @@ export function TxForm({
     if (categoryId && !cats.some((c) => c.id === categoryId)) setCategoryId('');
   }, [type]); // eslint-disable-line react-hooks/exhaustive-deps
   const roots = cats.filter((c) => !c.parent_id);
-  const selectedCategoryLabel = useMemo(() => {
-    if (!categoryId) return '';
-    const c = categories.find((x) => x.id === categoryId);
-    if (!c) return '';
-    if (!c.parent_id) return c.name;
-    const parent = categories.find((x) => x.id === c.parent_id);
-    return parent ? `${parent.name} › ${c.name}` : c.name;
-  }, [categoryId, categories]);
   const expenses = useMemo(
     () => transactions.filter((t) => t.transaction_type === 'expense'),
     [transactions]
@@ -365,50 +356,13 @@ export function TxForm({
             ))}
           </select>
         </Field>
-        <div className="field relative">
-          <span>Category *</span>
-          <button type="button" className="picker" onClick={() => setCatOpen(!catOpen)}>
-            <span className={selectedCategoryLabel ? '' : 'placeholder'}>
-              {selectedCategoryLabel || 'Select category'}
-            </span>
-            <span>⌄</span>
-          </button>
-          {catOpen && (
-            <div className="pickerpanel">
-              {roots.map((r) => (
-                <div className="catsection" key={r.id}>
-                  <button
-                    type="button"
-                    className={`catpick rootpick${categoryId === r.id ? ' selected' : ''}`}
-                    onClick={() => {
-                      setCategoryId(r.id);
-                      setCatOpen(false);
-                    }}
-                  >
-                    <b>{r.name}</b>
-                    <span>{r.kind}</span>
-                  </button>
-                  {cats
-                    .filter((c) => c.parent_id === r.id)
-                    .map((c) => (
-                      <button
-                        type="button"
-                        className={`catpick childpick${categoryId === c.id ? ' selected' : ''}`}
-                        key={c.id}
-                        onClick={() => {
-                          setCategoryId(c.id);
-                          setCatOpen(false);
-                        }}
-                      >
-                        {c.name}
-                      </button>
-                    ))}
-                </div>
-              ))}
-              {!roots.length && <p>No categories available.</p>}
-            </div>
-          )}
-        </div>
+        <CategoryPicker
+          label="Category"
+          required
+          categories={cats}
+          value={categoryId}
+          onChange={setCategoryId}
+        />
         <Field label="Payee / payer">
           <input
             value={payee}

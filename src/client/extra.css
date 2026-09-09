@@ -1261,6 +1261,22 @@ h1 {
   padding: 5px;
   border-radius: 11px;
 }
+.pickersearch {
+  width: 100%;
+  border: 1px solid #d8e0e9;
+  background: #fbfcfd;
+  border-radius: 9px;
+  outline: 0;
+  padding: 9px 10px;
+  font-size: 13px;
+  margin-bottom: 5px;
+  position: sticky;
+  top: 0;
+}
+.pickersearch:focus {
+  border-color: #6c9bd1;
+  box-shadow: 0 0 0 3px #6c9bd122;
+}
 .search {
   border-radius: 12px;
 }
