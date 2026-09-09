@@ -1101,3 +1101,206 @@ input[type='file'] {
 .bar b.negative {
   color: #c23b47;
 }
+
+/* ============ compact density pass ============ */
+/* Overall layout: tighter padding, smaller radii, less whitespace. */
+.app {
+  padding: 18px 18px 100px;
+}
+header {
+  margin-bottom: 16px;
+}
+.appbar {
+  margin-bottom: 14px;
+  padding-bottom: 12px;
+}
+.appbar .mark {
+  width: 38px;
+  height: 38px;
+  font-size: 18px;
+  border-radius: 11px;
+}
+.appbar h1 {
+  font-size: 19px;
+}
+.appbar p {
+  font-size: 12px;
+}
+h1 {
+  font-size: 26px;
+}
+.stats {
+  gap: 10px;
+  margin-bottom: 12px;
+}
+.stats > div {
+  padding: 12px;
+  border-radius: 14px;
+}
+.stats b {
+  font-size: 20px;
+}
+.card {
+  padding: 14px;
+  margin-bottom: 12px;
+  border-radius: 16px;
+}
+.cardhead,
+.managerhead {
+  margin-bottom: 10px;
+}
+.tx {
+  padding: 9px 3px;
+  gap: 10px;
+}
+.avatar,
+.roundicon,
+.catdot {
+  width: 34px;
+  height: 34px;
+  border-radius: 10px;
+}
+.manage-row {
+  padding: 9px 0;
+  gap: 10px;
+}
+.primary,
+.save {
+  padding: 9px 13px;
+  border-radius: 9px;
+}
+.save {
+  padding: 11px;
+  font-size: 14px;
+}
+.outline {
+  padding: 7px 11px;
+  border-radius: 9px;
+}
+.modal {
+  padding: 16px;
+  border-radius: 20px 20px 0 0;
+}
+.modal.centered {
+  border-radius: 18px;
+}
+.modalhead {
+  margin-bottom: 14px;
+}
+.modalhead h2 {
+  font-size: 19px;
+}
+.typechoice {
+  gap: 8px;
+  margin-bottom: 12px;
+}
+.typechoice button {
+  padding: 11px;
+  border-radius: 11px;
+}
+.amount {
+  margin-bottom: 12px;
+}
+.amount input {
+  font-size: 28px;
+}
+.formgrid {
+  gap: 10px;
+}
+.field input,
+.field select,
+.details input,
+.modalform input,
+.modalform select {
+  padding: 9px;
+  border-radius: 9px;
+}
+.picker {
+  padding: 9px;
+  border-radius: 9px;
+}
+.details {
+  margin-top: 14px;
+  padding-top: 12px;
+  gap: 10px;
+}
+.balances {
+  gap: 8px;
+}
+.balance {
+  padding: 10px;
+  border-radius: 11px;
+}
+.framebox {
+  padding: 12px;
+  border-radius: 14px;
+}
+.framehead {
+  margin-bottom: 6px;
+}
+.detailamount {
+  padding: 12px;
+  border-radius: 12px;
+  margin-bottom: 12px;
+}
+.detailamount b {
+  font-size: 24px;
+}
+.detailgrid {
+  border-radius: 12px;
+}
+.detail {
+  padding: 10px;
+}
+.searchpopup,
+.descpopup {
+  padding: 6px;
+  border-radius: 12px;
+}
+.pickerpanel {
+  padding: 5px;
+  border-radius: 11px;
+}
+.search {
+  border-radius: 12px;
+}
+.search input {
+  padding: 11px 8px;
+}
+.confirmtext {
+  margin: 2px 0 14px;
+}
+.filterpanel {
+  padding: 14px;
+}
+.modalform .field {
+  margin-bottom: 12px;
+}
+@media (max-width: 650px) {
+  .app {
+    padding: 14px 10px 95px;
+  }
+  h1 {
+    font-size: 22px;
+  }
+}
+
+/* compact: dashboard widget grids */
+.framegrid {
+  gap: 10px;
+  margin-bottom: 12px;
+}
+.framebox {
+  padding: 12px;
+  border-radius: 14px;
+}
+.addwidget {
+  margin-bottom: 12px;
+}
+.customrange {
+  margin-bottom: 12px;
+  padding: 8px;
+}
+.accountscope {
+  margin-bottom: 12px;
+}
