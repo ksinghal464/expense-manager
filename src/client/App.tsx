@@ -7,6 +7,8 @@ import { Manage } from './Manage';
 import { TxForm } from './TxForm';
 import { TxDetail } from './TxDetail';
 import { MasterModal } from './master';
+import { Login } from './Login';
+import { api } from './api';
 
 const NAV: [Page, string, string][] = [
   ['dashboard', '◙', 'Home'],
@@ -20,7 +22,10 @@ function isMaster(m: Modal): boolean {
 }
 
 function Shell() {
-  const { loading, error, page, go, modal, open, close, notify, accounts, refresh } = useStore();
+  const { loading, error, needsLogin, page, go, modal, open, close, notify, accounts, refresh } =
+    useStore();
+
+  if (needsLogin) return <Login />;
 
   return (
     <div className="app">
@@ -32,6 +37,15 @@ function Shell() {
             <p>{accounts.length ? 'Your money, at a glance' : 'Create an account to begin'}</p>
           </div>
         </div>
+        <button
+          className="outline logoutbtn"
+          onClick={async () => {
+            await api.logout().catch(() => {});
+            window.location.reload();
+          }}
+        >
+          Log out
+        </button>
       </header>
 
       {error ? (

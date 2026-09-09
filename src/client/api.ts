@@ -72,6 +72,8 @@ const put = <T = unknown>(path: string, body: unknown): Promise<T> =>
 
 export const api = {
   health: () => req<{ ok: boolean }>('/api/health'),
+  login: (password: string) => post<{ ok: boolean }>('/api/login', { password }),
+  logout: () => post<{ ok: boolean }>('/api/logout', {}),
   bootstrap: () => req<Bootstrap>('/api/bootstrap'),
   dashboard: () => req<Dashboard>('/api/dashboard'),
   dashboardFrame: (from: string, to?: string | null, accountId?: string | null) =>

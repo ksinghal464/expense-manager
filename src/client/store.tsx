@@ -1,5 +1,5 @@
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
-import { api } from './api';
+import { api, ApiError } from './api';
 import type {
   Account,
   Category,
@@ -42,6 +42,7 @@ export type Modal =
 export interface Store {
   loading: boolean;
   error: string;
+  needsLogin: boolean;
   accounts: Account[];
   categories: Category[];
   methods: PaymentMethod[];
@@ -107,6 +108,7 @@ async function fetchAllTransactions(): Promise<TxView[]> {
 export function StoreProvider({ children }: { children: React.ReactNode }) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  const [needsLogin, setNeedsLogin] = useState(false);
   const [page, setPage] = useState<Page>('dashboard');
   const [pendingActivityFilter, setPendingActivityFilter] = useState<ActivityFilter | null>(null);
   const [modal, setModal] = useState<Modal>(null);
@@ -138,8 +140,14 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       setTransactions(t || []);
       setDash(d);
       setError('');
+      setNeedsLogin(false);
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Unable to load data');
+      if (e instanceof ApiError && e.status === 401) {
+        setNeedsLogin(true);
+        setError('');
+      } else {
+        setError(e instanceof Error ? e.message : 'Unable to load data');
+      }
     } finally {
       setLoading(false);
     }
@@ -165,6 +173,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     () => ({
       loading,
       error,
+      needsLogin,
       accounts,
       categories,
       methods,
@@ -188,6 +197,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     [
       loading,
       error,
+      needsLogin,
       accounts,
       categories,
       methods,

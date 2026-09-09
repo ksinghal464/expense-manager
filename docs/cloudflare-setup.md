@@ -10,31 +10,28 @@
 
 For the first deployment, do not manually create tables with ad-hoc SQL. Run the versioned migration so the Git repository remains the source of truth.
 
-## Restricting access with Cloudflare Access
+## Restricting access with a password (free, no third-party login)
 
-This is a personal, single-user app with no application-level login, so the Worker
-must not be left open to the public internet. Put it behind Cloudflare Access:
+This is a personal, single-user app with no per-user accounts, so the Worker
+must not be left open to the public internet. Access is gated by a single
+app password — no Cloudflare Access, no identity provider, and no billing or
+credit-card requirement of any kind.
 
-1. In the Cloudflare dashboard, open **Zero Trust → Access → Applications** and
-   **Add an application** of type **Self-hosted**.
-2. Set the application domain to the Worker's hostname (the `workers.dev` URL or
-   your custom domain).
-3. Add a policy that allows only your own email (via One-time PIN, Google, or
-   GitHub login) — no public access.
-4. Add a second, higher-priority **Bypass** policy scoped to the path
-   `/api/drive/callback` only. Google's OAuth redirect lands on this path in
-   your browser after you've already authenticated the Drive connection
-   yourself; excluding it from Access avoids an extra login prompt breaking
-   the redirect chain. Every other path stays behind the login policy.
-5. As defense-in-depth, the Worker also checks the `Cf-Access-Authenticated-User-Email`
-   header against the `ALLOWED_EMAIL` secret (see below) for every request except
-   `/api/drive/callback`. This means even if Access is ever misconfigured or the
-   raw Worker URL leaks, the application still rejects unrecognized callers.
-6. Set the secret:
+1. Pick a strong password and set it as a secret:
    ```bash
-   wrangler secret put ALLOWED_EMAIL
+   wrangler secret put APP_PASSWORD
    ```
-   with the value of the email address you use to log in through Access.
+2. That's it. Visiting the app now shows a password prompt (`src/client/Login.tsx`).
+   A successful login sets a signed, HttpOnly session cookie (30 days) —
+   nothing is stored server-side, so there's no session table to manage.
+   The signing key is derived from `APP_PASSWORD` itself, so changing the
+   password immediately invalidates every previously-issued session.
+3. `/api/health` and `/api/drive/callback` are intentionally exempt from the
+   password check (health checks need to work unauthenticated, and Google's
+   OAuth redirect lands on the callback path as part of a flow you already
+   started from a logged-in session).
+4. If `APP_PASSWORD` is ever unset, the Worker fails closed (503) rather than
+   silently allowing every request through.
 
 ## Google Drive OAuth secrets
 
@@ -42,7 +39,7 @@ must not be left open to the public internet. Put it behind Cloudflare Access:
 wrangler secret put GOOGLE_OAUTH_CLIENT_ID
 wrangler secret put GOOGLE_OAUTH_CLIENT_SECRET
 wrangler secret put DRIVE_TOKEN_ENCRYPTION_KEY   # random 32-byte base64 key, e.g. `openssl rand -base64 32`
-wrangler secret put ALLOWED_EMAIL
+wrangler secret put APP_PASSWORD
 ```
 
 Register the exact callback URL on the OAuth client in Google Cloud Console:

@@ -3,7 +3,7 @@ import { route } from './worker/routes';
 import { runRecurring } from './worker/recurring';
 import { driveBackup, driveStatus, setDriveBackupError } from './worker/drive';
 import { exportJson } from './worker/io';
-import { requireAccess } from './worker/access';
+import { requireAuth, handleLogin, handleLogout } from './worker/auth';
 
 export default {
   async fetch(request: Request, env: Env): Promise<Response> {
@@ -13,7 +13,10 @@ export default {
     if (!url.pathname.startsWith('/api/')) return env.ASSETS.fetch(request);
 
     try {
-      requireAccess(request, url, env);
+      if (request.method === 'POST' && url.pathname === '/api/login')
+        return await handleLogin(request, env);
+      if (request.method === 'POST' && url.pathname === '/api/logout') return handleLogout();
+      await requireAuth(request, url, env);
       return await route(request, url, env);
     } catch (e) {
       if (e instanceof HttpError) return json({ error: e.message }, { status: e.status });

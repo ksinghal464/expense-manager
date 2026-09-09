@@ -4,7 +4,7 @@ export interface Env {
   GOOGLE_OAUTH_CLIENT_ID?: string;
   GOOGLE_OAUTH_CLIENT_SECRET?: string;
   DRIVE_TOKEN_ENCRYPTION_KEY?: string;
-  ALLOWED_EMAIL?: string;
+  APP_PASSWORD?: string;
 }
 
 /** Raised for expected client/server errors; message is safe to return. */

@@ -17,8 +17,10 @@ migrations_dir = "migrations"
 crons = ["30 0 * * *"]
 
 # Secrets (set via `wrangler secret put <NAME>`):
+#   APP_PASSWORD               - the single password gate for this app (see docs/cloudflare-setup.md)
 #   GOOGLE_OAUTH_CLIENT_ID     - OAuth 2.0 Web client ID from Google Cloud Console
 #   GOOGLE_OAUTH_CLIENT_SECRET - OAuth 2.0 Web client secret
+#   DRIVE_TOKEN_ENCRYPTION_KEY - random 32-byte base64 key (e.g. `openssl rand -base64 32`)
 #   Redirect URI to register on the OAuth client:
 #     https://expense-manager.ksinghal464.workers.dev/api/drive/callback
 #   Scope requested: https://www.googleapis.com/auth/drive.file
