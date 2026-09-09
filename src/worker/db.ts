@@ -14,6 +14,19 @@ export const INSERT_TX = `INSERT INTO transactions
    parent_transaction_id,recurring_rule_id,is_split_parent,created_at,updated_at)
    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`;
 
+/**
+ * Same as INSERT_TX but used only by recurring generation: relies on the
+ * unique index on (recurring_rule_id, occurred_at) to make concurrent runs
+ * idempotent — a duplicate occurrence is silently ignored instead of
+ * erroring, so the caller must check `meta.changes` to know whether a row
+ * was actually created before advancing next_due_at.
+ */
+export const INSERT_TX_RECURRING_IDEMPOTENT = `INSERT OR IGNORE INTO transactions
+  (id,account_id,payment_method_id,category_id,payee_id,transaction_type,amount_minor,occurred_at,
+   description,note,status,refunds_transaction_id,
+   parent_transaction_id,recurring_rule_id,is_split_parent,created_at,updated_at)
+   VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`;
+
 const MASTER = new Set([
   'accounts',
   'categories',
@@ -89,6 +102,38 @@ export async function checkFks(
     if (fk && !(await exists(env, table, fk))) return `Invalid reference to ${table} (${fk}).`;
   }
   return null;
+}
+
+/**
+ * Validate that a live payment method belongs to the given account, and
+ * that a live category's kind is compatible with the transaction type
+ * ('both' categories are always allowed). Throws HttpError on mismatch.
+ */
+export async function checkTxReferences(
+  env: Env,
+  accountId: string,
+  methodId: string | null,
+  categoryId: string | null,
+  type: 'expense' | 'income' | string
+): Promise<void> {
+  if (methodId) {
+    const pm = await env.DB.prepare(
+      'SELECT account_id FROM payment_methods WHERE id=? AND deleted_at IS NULL'
+    )
+      .bind(methodId)
+      .first<Row>();
+    if (pm && pm.account_id !== accountId)
+      throw new HttpError(400, 'Payment method does not belong to the selected account');
+  }
+  if (categoryId) {
+    const cat = await env.DB.prepare(
+      'SELECT kind FROM categories WHERE id=? AND deleted_at IS NULL'
+    )
+      .bind(categoryId)
+      .first<Row>();
+    if (cat && cat.kind !== 'both' && cat.kind !== type)
+      throw new HttpError(400, `Category is not valid for ${type} transactions`);
+  }
 }
 
 /** Coerce an input date (ISO or datetime-local) to a UTC ISO string. */

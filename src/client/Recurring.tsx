@@ -128,9 +128,10 @@ export function Recurring() {
             setCreating(false);
             setEditing(null);
           }}
-          saved={() => {
+          saved={async () => {
             setCreating(false);
             setEditing(null);
+            await after('Saved');
           }}
         />
       )}
@@ -151,7 +152,7 @@ function RuleForm({
   methods: PaymentMethod[];
   categories: Category[];
   close: () => void;
-  saved: () => void;
+  saved: () => void | Promise<void>;
 }) {
   const [name, setName] = useState(rule?.name || '');
   const [type, setType] = useState<TxType>(rule?.transaction_type || 'expense');

@@ -20,6 +20,7 @@ type DriveStatus = {
   configured: boolean;
   connected: boolean;
   lastBackupAt: string | null;
+  lastBackupError: string | null;
   autoBackup: boolean;
 };
 
@@ -42,6 +43,11 @@ export function ImportExport({ onDone }: { onDone?: () => void }) {
     const params = new URLSearchParams(window.location.search);
     if (params.get('drive') === 'connected') toast('Google Drive connected');
     if (params.get('drive') === 'error') setErr('Google Drive connection was cancelled or failed.');
+    if (params.has('drive')) {
+      params.delete('drive');
+      const qs = params.toString();
+      window.history.replaceState(null, '', window.location.pathname + (qs ? `?${qs}` : ''));
+    }
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   const doImport = async (text: string) => {
@@ -239,6 +245,11 @@ export function ImportExport({ onDone }: { onDone?: () => void }) {
               Last backup:{' '}
               {drive.lastBackupAt ? fmtDateTime(drive.lastBackupAt) : 'never — run Backup now.'}
             </div>
+            {drive.lastBackupError && (
+              <div className="iohint" style={{ color: 'var(--danger, #c0392b)' }}>
+                Last attempt failed: {drive.lastBackupError}
+              </div>
+            )}
             <div className="iorow">
               <button className="outline" onClick={doDriveBackup} disabled={!!busy}>
                 Backup now

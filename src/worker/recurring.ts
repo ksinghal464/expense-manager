@@ -1,5 +1,5 @@
 import { Env } from './http';
-import { audit, id, now, INSERT_TX } from './db';
+import { audit, id, now, INSERT_TX_RECURRING_IDEMPOTENT } from './db';
 
 type Row = Record<string, any>;
 
@@ -52,7 +52,7 @@ export async function runRecurring(env: Env): Promise<Generated> {
     }
 
     const txId = id();
-    await env.DB.prepare(INSERT_TX)
+    const insertResult = await env.DB.prepare(INSERT_TX_RECURRING_IDEMPOTENT)
       .bind(
         txId,
         rule.account_id,
@@ -75,6 +75,17 @@ export async function runRecurring(env: Env): Promise<Generated> {
       .run();
 
     const next = advanceDue(rule.next_due_at, rule.frequency, rule.interval_value);
+    if (!insertResult.meta.changes) {
+      // A transaction for this exact occurrence already exists (concurrent
+      // run, or a previous run advanced next_due_at but crashed before
+      // completing) — still safe to advance, but nothing new was created.
+      await env.DB.prepare(`UPDATE recurring_rules SET next_due_at=?, updated_at=? WHERE id=?`)
+        .bind(next, asOf, rule.id)
+        .run();
+      res.skipped++;
+      continue;
+    }
+
     await env.DB.prepare(
       `UPDATE recurring_rules SET next_due_at=?, last_generated_at=?, updated_at=? WHERE id=?`
     )

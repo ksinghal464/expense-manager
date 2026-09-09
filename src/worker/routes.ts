@@ -1,6 +1,18 @@
-import { Env, HttpError, json, textBody, readJson, readBody, corsHeaders } from './http';
-import { now, id, audit, exists, getEntity, toIso, toMinorStrict, clampInt, INSERT_TX } from './db';
-import { buildDashboard, rangeStats, categoryBreakdown } from './aggregate';
+import { Env, HttpError, json, textBody, readJson, readBody } from './http';
+import {
+  now,
+  id,
+  audit,
+  exists,
+  getEntity,
+  toIso,
+  toMinorStrict,
+  clampInt,
+  INSERT_TX,
+  INSERT_TX_RECURRING_IDEMPOTENT,
+  checkTxReferences,
+} from './db';
+import { buildDashboard, rangeStats, categoryBreakdown, entityBreakdown } from './aggregate';
 import { runRecurring, advanceDue } from './recurring';
 import { importCsv, exportCsv, exportJson, restoreBackup } from './io';
 import {
@@ -11,6 +23,7 @@ import {
   driveRestore,
   driveSetAutoBackup,
   driveStatus,
+  setDriveBackupError,
 } from './drive';
 
 type Row = Record<string, any>;
@@ -27,7 +40,7 @@ const TX_SELECT = `SELECT t.*, a.name AS account_name, c.name AS category_name, 
   (SELECT COALESCE(SUM(r2.amount_minor),0) FROM transactions r2
     WHERE r2.refunds_transaction_id=t.refunds_transaction_id AND r2.deleted_at IS NULL) AS refund_siblings_total
   FROM transactions t
-  JOIN accounts a ON a.id=t.account_id
+  LEFT JOIN accounts a ON a.id=t.account_id
   LEFT JOIN categories c ON c.id=t.category_id
   LEFT JOIN payees p ON p.id=t.payee_id
   LEFT JOIN payment_methods pm ON pm.id=t.payment_method_id
@@ -155,7 +168,7 @@ async function listTransactions(env: Env, url: URL): Promise<Response> {
     const s = `%${q}%`;
     clauses.push(
       `(LOWER(t.description) LIKE LOWER(?) OR LOWER(t.note) LIKE LOWER(?) OR LOWER(COALESCE(c.name,'')) LIKE LOWER(?)
-        OR LOWER(COALESCE(p.name,'')) LIKE LOWER(?) OR LOWER(a.name) LIKE LOWER(?)
+        OR LOWER(COALESCE(p.name,'')) LIKE LOWER(?) OR LOWER(COALESCE(a.name,'')) LIKE LOWER(?)
         OR LOWER(COALESCE(pm.name,'')) LIKE LOWER(?))`
     );
     params.push(s, s, s, s, s, s);
@@ -185,7 +198,9 @@ async function listTransactions(env: Env, url: URL): Promise<Response> {
     params.push(from);
   }
   if (to) {
-    clauses.push('t.occurred_at <= ?');
+    if (from && from > to) throw new HttpError(400, '"from" must not be after "to"');
+    // [from, to) — consistent with the dashboard/Activity date-range convention.
+    clauses.push('t.occurred_at < ?');
     params.push(to);
   }
 
@@ -223,6 +238,7 @@ async function createTransaction(env: Env, request: Request): Promise<Response> 
     throw new HttpError(400, 'Category not found');
   if (!(await exists(env, 'payment_methods', methodId)))
     throw new HttpError(400, 'Payment method not found');
+  await checkTxReferences(env, accountId, methodId, categoryId, type);
 
   const refundsTransactionId = optStr(b, 'refundsTransactionId');
   if (refundsTransactionId) {
@@ -396,6 +412,7 @@ async function updateTransaction(env: Env, request: Request, txId: string): Prom
     throw new HttpError(400, 'Payment method not found');
   if (!(await exists(env, 'categories', categoryId)))
     throw new HttpError(400, 'Category not found');
+  await checkTxReferences(env, accountId, methodId, categoryId, type);
 
   let payeeId =
     b['payeeId'] === null
@@ -416,9 +433,74 @@ async function updateTransaction(env: Env, request: Request, txId: string): Prom
   const note = b['note'] !== undefined ? String(b['note']) : before.note;
   const occurredAt = b['occurredAt'] !== undefined ? toIso(b['occurredAt']) : before.occurred_at;
 
+  const refundsTransactionId =
+    b['refundsTransactionId'] === null
+      ? null
+      : b['refundsTransactionId'] !== undefined
+        ? String(b['refundsTransactionId'])
+        : before.refunds_transaction_id;
+  if (refundsTransactionId) {
+    if (refundsTransactionId === txId)
+      throw new HttpError(400, 'A transaction cannot refund itself');
+    const ref = await env.DB.prepare(
+      'SELECT transaction_type FROM transactions WHERE id=? AND deleted_at IS NULL'
+    )
+      .bind(refundsTransactionId)
+      .first<Row>();
+    if (!ref) throw new HttpError(400, 'Refund target transaction not found');
+    if (ref.transaction_type !== 'expense')
+      throw new HttpError(400, 'Refund target must be an expense');
+    if (type !== 'income') throw new HttpError(400, 'A refund must be recorded as income');
+  }
+
+  // Validate replacement splits (if provided) fully before writing anything
+  // — this guarantees a bad split (invalid amount, sum mismatch, dead
+  // category) leaves both the parent transaction and its existing splits
+  // completely untouched.
+  type PreparedSplit = {
+    id: string;
+    categoryId: string | null;
+    amount: number;
+    description: string;
+    note: string;
+    occurredAt: string;
+  };
+  let newSplits: PreparedSplit[] | null = null;
+  let isSplitParent = before.is_split_parent;
+  if (Array.isArray(b['splits'])) {
+    const splitsRaw = b['splits'] as any[];
+    if (splitsRaw.length >= 2) {
+      let sum = 0;
+      const prepared: PreparedSplit[] = [];
+      for (const s of splitsRaw) {
+        const amt = toMinorStrict(s.amount);
+        if (!(amt > 0)) throw new HttpError(400, 'Each split amount must be greater than zero');
+        sum += amt;
+        const categoryId = optStr(s, 'categoryId');
+        if (categoryId && !(await exists(env, 'categories', categoryId)))
+          throw new HttpError(400, 'Split category not found');
+        prepared.push({
+          id: id(),
+          categoryId,
+          amount: amt,
+          description: str(s, 'description'),
+          note: str(s, 'note'),
+          occurredAt: optStr(s, 'occurredAt') ? toIso(s.occurredAt) : occurredAt,
+        });
+      }
+      if (Math.abs(sum - amountMinor) > 1)
+        throw new HttpError(400, 'Split amounts must sum to the total');
+      newSplits = prepared;
+      isSplitParent = 1;
+    } else {
+      newSplits = [];
+      isSplitParent = 0;
+    }
+  }
+
   await env.DB.prepare(
     `UPDATE transactions SET account_id=?,payment_method_id=?,category_id=?,payee_id=?,transaction_type=?,amount_minor=?,
-     occurred_at=?,description=?,note=?,status=?,updated_at=?
+     occurred_at=?,description=?,note=?,status=?,refunds_transaction_id=?,is_split_parent=?,updated_at=?
      WHERE id=?`
   )
     .bind(
@@ -432,16 +514,17 @@ async function updateTransaction(env: Env, request: Request, txId: string): Prom
       description,
       note,
       status,
+      refundsTransactionId,
+      isSplitParent,
       at,
       txId
     )
     .run();
 
-  // replace splits if provided
+  // replace splits if provided (already fully validated above)
   let splitsBefore: Row[] | null = null;
   let splitsAfter: Row[] | null = null;
-  if (Array.isArray(b['splits'])) {
-    const splitsRaw = b['splits'] as any[];
+  if (newSplits !== null) {
     const oldSplits = await env.DB.prepare(
       `SELECT s.*, c.name AS category_name FROM transaction_splits s LEFT JOIN categories c ON c.id=s.category_id
        WHERE s.transaction_id=? AND s.deleted_at IS NULL ORDER BY s.created_at`
@@ -449,40 +532,23 @@ async function updateTransaction(env: Env, request: Request, txId: string): Prom
       .bind(txId)
       .all<Row>();
     splitsBefore = oldSplits.results;
+
     await env.DB.prepare('DELETE FROM transaction_splits WHERE transaction_id=?').bind(txId).run();
-    let isSplitParent = 0;
-    if (splitsRaw.length >= 2) {
-      let sum = 0;
-      const prepared = splitsRaw.map((s) => {
-        const amt = toMinorStrict(s.amount);
-        if (!(amt > 0)) throw new HttpError(400, 'Each split amount must be greater than zero');
-        sum += amt;
-        return {
-          id: id(),
-          categoryId: optStr(s, 'categoryId'),
-          amount: amt,
-          description: str(s, 'description'),
-          note: str(s, 'note'),
-          occurredAt: optStr(s, 'occurredAt') ? toIso(s.occurredAt) : occurredAt,
-        };
-      });
-      if (Math.abs(sum - amountMinor) > 1)
-        throw new HttpError(400, 'Split amounts must sum to the total');
+    if (newSplits.length) {
       await env.DB.batch(
-        prepared.map((s) =>
+        newSplits.map((s) =>
           env.DB.prepare(
             'INSERT INTO transaction_splits (id,transaction_id,category_id,amount_minor,description,note,occurred_at,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?)'
           ).bind(s.id, txId, s.categoryId, s.amount, s.description, s.note, s.occurredAt, at, at)
         )
       );
-      isSplitParent = 1;
       const catNames = new Map(
         (await env.DB.prepare('SELECT id,name FROM categories').all<Row>()).results.map((c) => [
           c.id,
           c.name,
         ])
       );
-      splitsAfter = prepared.map((s) => ({
+      splitsAfter = newSplits.map((s) => ({
         category_id: s.categoryId,
         category_name: s.categoryId ? catNames.get(s.categoryId) || null : null,
         amount_minor: s.amount,
@@ -492,9 +558,6 @@ async function updateTransaction(env: Env, request: Request, txId: string): Prom
     } else {
       splitsAfter = [];
     }
-    await env.DB.prepare('UPDATE transactions SET is_split_parent=? WHERE id=?')
-      .bind(isSplitParent, txId)
-      .run();
   }
 
   // replace tags if provided
@@ -713,6 +776,23 @@ async function updateCategory(env: Env, request: Request, idVal: string): Promis
   if (parentId === idVal) throw new HttpError(400, 'A category cannot be its own parent');
   if (parentId && !(await exists(env, 'categories', parentId)))
     throw new HttpError(400, 'Parent category not found');
+  if (parentId) {
+    // Walk up the new parent's ancestor chain — if we ever reach this
+    // category's own id, the reassignment would create a cycle.
+    let cursor: string | null = parentId;
+    const seen = new Set<string>([idVal]);
+    while (cursor) {
+      if (seen.has(cursor))
+        throw new HttpError(400, 'Cannot set parent: this would create a category cycle');
+      seen.add(cursor);
+      const row = await env.DB.prepare(
+        'SELECT parent_id FROM categories WHERE id=? AND deleted_at IS NULL'
+      )
+        .bind(cursor)
+        .first<Row>();
+      cursor = row?.parent_id ?? null;
+    }
+  }
   const updated = { ...before, name, parent_id: parentId, kind, updated_at: at };
   await env.DB.prepare('UPDATE categories SET name=?,parent_id=?,kind=?,updated_at=? WHERE id=?')
     .bind(name, parentId, kind, at, idVal)
@@ -877,11 +957,15 @@ async function createAttachment(env: Env, request: Request): Promise<Response> {
   const kind = b['kind'] === 'image' ? 'image' : 'file';
   const url = str(b, 'url');
   if (!url) throw new HttpError(400, 'url is required');
+  if (!/^(data:|https:)/i.test(url))
+    throw new HttpError(400, 'Attachment url must be a data: URI or an https: link');
   const fileName = str(b, 'fileName');
   const mimeType =
     str(b, 'mimeType') || (kind === 'image' ? 'image/jpeg' : 'application/octet-stream');
   const sizeBytes =
     b['sizeBytes'] !== undefined && b['sizeBytes'] !== null ? asIntSafe(b['sizeBytes']) : null;
+  if (sizeBytes !== null && (sizeBytes < 0 || sizeBytes > 5_000_000))
+    throw new HttpError(400, 'sizeBytes must be between 0 and 5,000,000');
   const a = {
     id: id(),
     transaction_id: transactionId,
@@ -963,6 +1047,7 @@ async function ruleFromBody(
     throw new HttpError(400, 'Category not found');
   if (methodId && !(await exists(env, 'payment_methods', methodId)))
     throw new HttpError(400, 'Payment method not found');
+  await checkTxReferences(env, accountId, methodId, categoryId, type);
   let payeeId =
     b['payeeId'] === null
       ? null
@@ -1081,7 +1166,7 @@ async function generateOne(env: Env, idVal: string): Promise<Response> {
   if (rule.no_of_payments && count + 1 > rule.no_of_payments)
     throw new HttpError(400, 'Recurring rule has reached its payment limit');
   const txId = id();
-  await env.DB.prepare(INSERT_TX)
+  const insertResult = await env.DB.prepare(INSERT_TX_RECURRING_IDEMPOTENT)
     .bind(
       txId,
       rule.account_id,
@@ -1102,6 +1187,11 @@ async function generateOne(env: Env, idVal: string): Promise<Response> {
       at
     )
     .run();
+  if (!insertResult.meta.changes)
+    throw new HttpError(
+      409,
+      'A transaction for this due date was already generated (possibly by a concurrent request).'
+    );
   const next = advanceDue(rule.next_due_at, rule.frequency, rule.interval_value);
   await env.DB.prepare(
     'UPDATE recurring_rules SET next_due_at=?, last_generated_at=?, updated_at=? WHERE id=?'
@@ -1189,9 +1279,16 @@ async function handleExportCsv(env: Env, url: URL): Promise<Response> {
 }
 
 async function handleDriveBackup(env: Env): Promise<Response> {
-  const backup = await exportJson(env);
-  const res = await driveBackup(env, backup);
-  return json(res);
+  try {
+    const backup = await exportJson(env);
+    const res = await driveBackup(env, backup);
+    return json(res);
+  } catch (e) {
+    await setDriveBackupError(env, e instanceof Error ? e.message : 'Backup failed').catch(
+      () => {}
+    );
+    throw e;
+  }
 }
 
 async function handleDriveRestore(env: Env): Promise<Response> {
@@ -1315,11 +1412,7 @@ export async function route(request: Request, url: URL, env: Env): Promise<Respo
   const p = url.pathname;
   const m = request.method;
   const seg = p.split('/').filter(Boolean); // e.g. ['api','transactions','<id>']
-  const res = (r: Response) => {
-    const headers = new Headers(r.headers);
-    for (const [k, v] of Object.entries(corsHeaders())) headers.set(k, v);
-    return new Response(r.body, { status: r.status, headers });
-  };
+  const res = (r: Response) => r;
 
   if (m === 'GET' && p === '/api/health') {
     const r = await env.DB.prepare('SELECT 1 AS ok').first<{ ok: number }>();
@@ -1343,6 +1436,18 @@ export async function route(request: Request, url: URL, env: Env): Promise<Respo
     const type = url.searchParams.get('type') === 'income' ? 'income' : 'expense';
     return res(
       json(await categoryBreakdown(env, toIso(from), to ? toIso(to) : null, { accountId, type }))
+    );
+  }
+  if (m === 'GET' && p === '/api/dashboard/breakdown') {
+    const from = url.searchParams.get('from');
+    if (!from) throw new HttpError(400, '"from" is required');
+    const by = url.searchParams.get('by');
+    if (by !== 'method' && by !== 'payee') throw new HttpError(400, '"by" must be method or payee');
+    const to = url.searchParams.get('to');
+    const accountId = url.searchParams.get('accountId');
+    const type = url.searchParams.get('type') === 'income' ? 'income' : 'expense';
+    return res(
+      json(await entityBreakdown(env, by, toIso(from), to ? toIso(to) : null, { accountId, type }))
     );
   }
   if (m === 'GET' && p === '/api/audit') return res(await handleAudit(env, url));
@@ -1454,17 +1559,23 @@ export async function route(request: Request, url: URL, env: Env): Promise<Respo
   if (m === 'POST' && p === '/api/drive/restore') return res(await handleDriveRestore(env));
   if (m === 'GET' && p === '/api/drive/status') return res(json(await driveStatus(env)));
   if (m === 'GET' && p === '/api/drive/connect') {
-    const location = driveAuthUrl(env, url);
+    const location = await driveAuthUrl(env, url);
     return res(new Response(null, { status: 302, headers: { location } }));
   }
   if (m === 'GET' && p === '/api/drive/callback') {
     const code = url.searchParams.get('code');
+    const state = url.searchParams.get('state');
     const error = url.searchParams.get('error');
     const back = `${url.protocol}//${url.host}/?manage=data`;
     if (error)
       return res(new Response(null, { status: 302, headers: { location: `${back}&drive=error` } }));
     if (!code) throw new HttpError(400, 'Missing authorization code.');
-    await driveHandleCallback(env, url, code);
+    try {
+      await driveHandleCallback(env, url, code, state);
+    } catch (e) {
+      console.error('drive: OAuth callback failed', e);
+      return res(new Response(null, { status: 302, headers: { location: `${back}&drive=error` } }));
+    }
     return res(
       new Response(null, { status: 302, headers: { location: `${back}&drive=connected` } })
     );

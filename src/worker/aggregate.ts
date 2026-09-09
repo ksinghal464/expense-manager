@@ -73,6 +73,45 @@ export async function categoryBreakdown(
   return r.results.map((row) => ({ id: row.id ?? null, name: row.name, total: row.total }));
 }
 
+/**
+ * Payment-method or payee breakdown (expense or income) for [from, to),
+ * optionally scoped to one account. Unlike categories, methods/payees are
+ * plain transaction-level attributes (splits don't carry their own), so a
+ * single grouped query is enough.
+ */
+export async function entityBreakdown(
+  env: Env,
+  dimension: 'method' | 'payee',
+  from: string,
+  to: string | null,
+  opts: { accountId?: string | null; type?: 'expense' | 'income' } = {}
+): Promise<CategoryTotal[]> {
+  const type = opts.type === 'income' ? 'income' : 'expense';
+  const idCol = dimension === 'method' ? 't.payment_method_id' : 't.payee_id';
+  const joinTable = dimension === 'method' ? 'payment_methods' : 'payees';
+  const joinAlias = dimension === 'method' ? 'pm' : 'py';
+  const fallbackName = dimension === 'method' ? 'No payment method' : 'No payee';
+  const clauses = [`t.deleted_at IS NULL`, `t.transaction_type='${type}'`, 't.occurred_at >= ?'];
+  const params: unknown[] = [from];
+  if (to) {
+    clauses.push('t.occurred_at < ?');
+    params.push(to);
+  }
+  if (opts.accountId) {
+    clauses.push('t.account_id = ?');
+    params.push(opts.accountId);
+  }
+  const r = await env.DB.prepare(
+    `SELECT ${idCol} AS id, COALESCE(${joinAlias}.name, '${fallbackName}') AS name, SUM(t.amount_minor) AS total
+     FROM transactions t LEFT JOIN ${joinTable} ${joinAlias} ON ${joinAlias}.id = ${idCol}
+     WHERE ${clauses.join(' AND ')}
+     GROUP BY COALESCE(${idCol}, ''), name ORDER BY total DESC`
+  )
+    .bind(...params)
+    .all<Row>();
+  return r.results.map((row) => ({ id: row.id ?? null, name: row.name, total: row.total }));
+}
+
 const PRESETS: { key: string; label: string }[] = [
   { key: 'today', label: 'Today' },
   { key: 'week', label: 'This week' },

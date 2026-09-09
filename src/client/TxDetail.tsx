@@ -155,10 +155,14 @@ export function TxDetail({
             <span>Total refunded of {money(tx.amount_minor)}</span>
             <b className="positive">+{money(tx.refunded_minor)}</b>
           </div>
+          <div className="splitview">
+            <span>Net amount (after refunds)</span>
+            <b>{money(tx.amount_minor - (tx.refunded_minor || 0))}</b>
+          </div>
         </section>
       ) : null}
 
-      <Attachments attach={attach} onChanged={load} onToast={after} />
+      <Attachments transactionId={id} attach={attach} onChanged={load} onToast={after} />
 
       <section className="history">
         <div className="cardhead">
@@ -260,15 +264,16 @@ function Detail({ label, value }: { label: string; value: string }) {
 }
 
 function Attachments({
+  transactionId,
   attach,
   onChanged,
   onToast,
 }: {
+  transactionId: string;
   attach: AttachmentRow[];
   onChanged: () => Promise<void>;
   onToast: (m: string) => Promise<void>;
 }) {
-  const [transactionId] = useState(attach[0]?.transaction_id || '');
   const [busy, setBusy] = useState(false);
 
   const onFile = async (f: File | null) => {

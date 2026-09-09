@@ -136,6 +136,12 @@ export function parseImportCsv(text: string): ParsedImport {
     const g = grid[i];
     const raw = {} as RawImportRow;
     raw.line = i + 1;
+    // Default every optional column to '' so rows from CSVs missing columns
+    // (e.g. no "Tag" or "Payment Method" column at all) never carry
+    // `undefined` into downstream string operations like `.trim()`/`.split()`.
+    for (const key of Object.values(COL)) {
+      (raw as unknown as Record<string, string>)[key] = '';
+    }
     for (const key of Object.keys(colIndex) as (keyof RawImportRow)[]) {
       const idx = colIndex[key] as number;
       (raw as unknown as Record<string, string>)[key] = (g[idx] ?? '').trim();

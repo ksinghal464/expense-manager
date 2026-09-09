@@ -173,7 +173,11 @@ export function TxForm({ id, title, close }: { id?: string; title: string; close
         payee,
         tags: tagSel,
       };
-      if (type === 'income' && refundsTxId) payload.refundsTransactionId = refundsTxId;
+      if (type === 'income') {
+        // Send explicitly (including null) on edit so clearing the refund
+        // link server-side actually clears it instead of being ignored.
+        payload.refundsTransactionId = refundsTxId || (id ? null : undefined);
+      }
 
       if (hasSplits) {
         const parts = splits.map((s) => ({

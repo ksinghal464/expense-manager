@@ -96,6 +96,22 @@ export const api = {
         ...(type ? { type } : {}),
       })}`
     ),
+  dashboardBreakdown: (
+    by: 'method' | 'payee',
+    from: string,
+    to?: string | null,
+    accountId?: string | null,
+    type?: 'expense' | 'income'
+  ) =>
+    req<{ id: string | null; name: string; total: number }[]>(
+      `/api/dashboard/breakdown?${new URLSearchParams({
+        by,
+        from,
+        ...(to ? { to } : {}),
+        ...(accountId ? { accountId } : {}),
+        ...(type ? { type } : {}),
+      })}`
+    ),
   searchOptions: (q: string) =>
     req<SearchOptions>(`/api/search-options?q=${encodeURIComponent(q)}`),
 
@@ -181,6 +197,7 @@ export const api = {
       configured: boolean;
       connected: boolean;
       lastBackupAt: string | null;
+      lastBackupError: string | null;
       autoBackup: boolean;
     }>('/api/drive/status'),
   driveBackup: () =>

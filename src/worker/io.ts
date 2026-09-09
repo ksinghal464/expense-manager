@@ -26,6 +26,34 @@ export async function importCsv(
   if (rows.length === 0)
     throw new HttpError(400, errors[0]?.message || 'No data rows found in CSV.');
 
+  const norm = normalizeRows(rows);
+
+  // Validate every row fully before touching the database — this is the
+  // only way to be sure "replace" mode's destructive DELETEs never run
+  // against a CSV that would fail partway through, which previously could
+  // leave the database empty.
+  const hardErrors: string[] = [];
+  for (const r of norm) {
+    if (!r.date.trim() || !parseDDMMYYYY(r.date)) {
+      hardErrors.push(`Line ${r.line}: invalid or missing date "${r.date}".`);
+    }
+    if (!r.amount.trim() || !Number.isFinite(parseFloat(r.amount))) {
+      hardErrors.push(`Line ${r.line}: invalid or missing amount "${r.amount}".`);
+    }
+    if (!r.account.trim()) {
+      hardErrors.push(`Line ${r.line}: account is required.`);
+    }
+    if (!r.category.trim()) {
+      hardErrors.push(`Line ${r.line}: category is required.`);
+    }
+  }
+  if (hardErrors.length) {
+    throw new HttpError(
+      400,
+      `Import aborted, no data was changed. ${hardErrors.length} row(s) failed validation: ${hardErrors.slice(0, 5).join(' ')}${hardErrors.length > 5 ? ' …' : ''}`
+    );
+  }
+
   if (mode === 'replace') {
     await env.DB.batch([
       env.DB.prepare('DELETE FROM transaction_tags'),
@@ -53,7 +81,6 @@ export async function importCsv(
     methods: 0,
     errors: [],
   };
-  const norm = normalizeRows(rows);
 
   // ---- cached master upserts ----
   const acc = new Map<string, string>();
@@ -387,7 +414,8 @@ export async function exportCsv(
     params.push(opts.from);
   }
   if (opts.to) {
-    clauses.push('t.occurred_at <= ?');
+    // [from, to) — consistent with the dashboard/Activity date-range convention.
+    clauses.push('t.occurred_at < ?');
     params.push(opts.to);
   }
   const rows = await env.DB.prepare(
@@ -396,7 +424,7 @@ export async function exportCsv(
             (SELECT group_concat(tg.name, ', ') FROM transaction_tags tt JOIN tags tg ON tg.id=tt.tag_id
               WHERE tt.transaction_id=t.id) AS tags
      FROM transactions t
-     JOIN accounts a ON a.id=t.account_id
+     LEFT JOIN accounts a ON a.id=t.account_id
      LEFT JOIN categories c ON c.id=t.category_id
      LEFT JOIN categories cp ON cp.id=c.parent_id
      LEFT JOIN payees p ON p.id=t.payee_id
@@ -625,6 +653,114 @@ const RESTORE_ORDER: [string, string[]][] = [
   ],
 ];
 
+/** Columns that must be present and non-null on every row of a table, mirroring the NOT NULL columns in migrations/0001_initial.sql (as evolved by later migrations). */
+const REQUIRED_COLS: Record<string, string[]> = {
+  accounts: ['id', 'name', 'currency', 'opening_balance_minor', 'opening_balance_at'],
+  categories: ['id', 'name', 'kind'],
+  payment_methods: ['id', 'account_id', 'name'],
+  payees: ['id', 'name'],
+  tags: ['id', 'name'],
+  recurring_rules: [
+    'id',
+    'name',
+    'transaction_type',
+    'account_id',
+    'amount_minor',
+    'frequency',
+    'interval_value',
+    'next_due_at',
+  ],
+  transactions: ['id', 'account_id', 'transaction_type', 'amount_minor', 'occurred_at'],
+  transaction_splits: ['id', 'transaction_id', 'amount_minor'],
+  transaction_tags: ['transaction_id', 'tag_id'],
+  notes: ['id', 'transaction_id'],
+  attachments: ['id', 'transaction_id', 'provider', 'external_file_id', 'file_name', 'mime_type'],
+};
+
+/** FK columns that, when present, must reference a row id present elsewhere in the same backup payload. */
+const FK_CHECKS: Record<string, [column: string, targetTable: string][]> = {
+  payment_methods: [['account_id', 'accounts']],
+  recurring_rules: [
+    ['account_id', 'accounts'],
+    ['payment_method_id', 'payment_methods'],
+    ['category_id', 'categories'],
+    ['payee_id', 'payees'],
+  ],
+  transactions: [
+    ['account_id', 'accounts'],
+    ['payment_method_id', 'payment_methods'],
+    ['category_id', 'categories'],
+    ['payee_id', 'payees'],
+    ['recurring_rule_id', 'recurring_rules'],
+    ['refunds_transaction_id', 'transactions'],
+    ['parent_transaction_id', 'transactions'],
+  ],
+  transaction_splits: [
+    ['transaction_id', 'transactions'],
+    ['category_id', 'categories'],
+  ],
+  transaction_tags: [
+    ['transaction_id', 'transactions'],
+    ['tag_id', 'tags'],
+  ],
+  notes: [['transaction_id', 'transactions']],
+  attachments: [['transaction_id', 'transactions']],
+};
+
+/**
+ * Validate the entire backup payload — required columns, non-null values,
+ * and every foreign key resolvable within the same payload — before any
+ * destructive operation runs. Throws with a description of the first
+ * problem found; never mutates the database.
+ */
+function validateBackupData(data: Row): void {
+  if (!data || typeof data !== 'object') throw new HttpError(400, 'Invalid backup: missing data.');
+  const idsByTable: Record<string, Set<string>> = {};
+  for (const [table, cols] of RESTORE_ORDER) {
+    const rows: unknown = data[table];
+    if (rows === undefined) continue; // omitted table is allowed (treated as empty)
+    if (!Array.isArray(rows))
+      throw new HttpError(400, `Invalid backup: "${table}" must be an array.`);
+    const required = REQUIRED_COLS[table] || [];
+    const ids = new Set<string>();
+    for (let i = 0; i < rows.length; i++) {
+      const row = rows[i];
+      if (!row || typeof row !== 'object')
+        throw new HttpError(400, `Invalid backup: ${table}[${i}] is not an object.`);
+      for (const col of required) {
+        if (row[col] === undefined || row[col] === null || row[col] === '') {
+          throw new HttpError(400, `Invalid backup: ${table}[${i}] is missing "${col}".`);
+        }
+      }
+      if (typeof row.id === 'string') ids.add(row.id);
+      // basic type sanity for known numeric columns
+      for (const numCol of ['amount_minor', 'opening_balance_minor', 'interval_value']) {
+        if (row[numCol] !== undefined && row[numCol] !== null && !Number.isFinite(row[numCol])) {
+          throw new HttpError(400, `Invalid backup: ${table}[${i}].${numCol} is not a number.`);
+        }
+      }
+    }
+    idsByTable[table] = ids;
+  }
+  for (const [table, checks] of Object.entries(FK_CHECKS)) {
+    const rows: unknown[] = Array.isArray(data[table]) ? data[table] : [];
+    for (let i = 0; i < rows.length; i++) {
+      const row = rows[i] as Row;
+      for (const [col, targetTable] of checks) {
+        const fk = row[col];
+        if (fk === undefined || fk === null) continue;
+        const ids = idsByTable[targetTable];
+        if (!ids || !ids.has(fk)) {
+          throw new HttpError(
+            400,
+            `Invalid backup: ${table}[${i}].${col} references missing ${targetTable} "${fk}".`
+          );
+        }
+      }
+    }
+  }
+}
+
 /** Full replace-restore from a backup JSON (must match schema "expense-manager/1"). */
 export async function restoreBackup(env: Env, backup: any): Promise<{ restored: number }> {
   if (!backup || backup.schema !== 'expense-manager/1' || !backup.data) {
@@ -634,8 +770,14 @@ export async function restoreBackup(env: Env, backup: any): Promise<{ restored: 
     );
   }
   const data = backup.data;
-  // clear everything (child tables first)
-  await env.DB.batch(RESTORE_ORDER.map(([t]) => env.DB.prepare(`DELETE FROM ${t}`)));
+  // Validate the entire payload up front. Nothing below this point may run
+  // if the backup is malformed or internally inconsistent — the live
+  // database must never be cleared on the strength of an unvalidated file.
+  validateBackupData(data);
+
+  // Clear everything, children first, so FK constraints (PRAGMA foreign_keys
+  // = ON, see migrations/0001_initial.sql) are respected during deletion.
+  await env.DB.batch([...RESTORE_ORDER].reverse().map(([t]) => env.DB.prepare(`DELETE FROM ${t}`)));
   let restored = 0;
   for (const [table, cols] of RESTORE_ORDER) {
     const rows: Row[] = Array.isArray(data[table]) ? data[table] : [];

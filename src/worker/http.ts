@@ -3,6 +3,8 @@ export interface Env {
   ASSETS: Fetcher;
   GOOGLE_OAUTH_CLIENT_ID?: string;
   GOOGLE_OAUTH_CLIENT_SECRET?: string;
+  DRIVE_TOKEN_ENCRYPTION_KEY?: string;
+  ALLOWED_EMAIL?: string;
 }
 
 /** Raised for expected client/server errors; message is safe to return. */
@@ -51,12 +53,4 @@ export async function readJson(
   } catch {
     throw new HttpError(400, 'Body must be a JSON object');
   }
-}
-
-export function corsHeaders(): Record<string, string> {
-  return {
-    'access-control-allow-origin': '*',
-    'access-control-allow-methods': 'GET,POST,PUT,PATCH,DELETE,OPTIONS',
-    'access-control-allow-headers': 'content-type',
-  };
 }

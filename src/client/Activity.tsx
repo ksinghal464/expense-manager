@@ -105,20 +105,30 @@ export function Activity() {
       .catch(() => setOptions(null));
   }, [debounced]);
 
-  // Running balance (total opening balances + cumulative net so far), computed
-  // over every loaded transaction in chronological order regardless of the
-  // filters/search currently applied, then looked up per row below.
+  // Running balance per account (that account's opening balance + cumulative
+  // net of its own transactions so far), computed over every loaded
+  // transaction in chronological order regardless of the filters/search
+  // currently applied, then looked up per row below. Transactions are
+  // grouped by account so one account's balance never bleeds into another's.
   const balanceById = useMemo(() => {
-    const openingTotal = accounts.reduce((s, a) => s + a.opening_balance_minor, 0);
-    const asc = [...transactions].sort(
-      (a, b) =>
-        a.occurred_at.localeCompare(b.occurred_at) || a.created_at.localeCompare(b.created_at)
-    );
+    const openingByAccount = new Map(accounts.map((a) => [a.id, a.opening_balance_minor]));
+    const byAccount = new Map<string, typeof transactions>();
+    for (const t of transactions) {
+      const arr = byAccount.get(t.account_id) || [];
+      arr.push(t);
+      byAccount.set(t.account_id, arr);
+    }
     const map: Record<string, number> = {};
-    let running = openingTotal;
-    for (const t of asc) {
-      running += t.transaction_type === 'income' ? t.amount_minor : -t.amount_minor;
-      map[t.id] = running;
+    for (const [accountId, txs] of byAccount) {
+      const asc = [...txs].sort(
+        (a, b) =>
+          a.occurred_at.localeCompare(b.occurred_at) || a.created_at.localeCompare(b.created_at)
+      );
+      let running = openingByAccount.get(accountId) ?? 0;
+      for (const t of asc) {
+        running += t.transaction_type === 'income' ? t.amount_minor : -t.amount_minor;
+        map[t.id] = running;
+      }
     }
     return map;
   }, [transactions, accounts]);

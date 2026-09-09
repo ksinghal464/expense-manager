@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useStore } from './store';
+import type { ActivityFilter } from './store';
 import { api } from './api';
 import { money } from './lib';
 import { Empty } from './ui';
@@ -29,6 +30,110 @@ const ALL_PRESETS: { key: string; label: string; from: (now: number) => string }
 function todayInputValue(): string {
   const d = new Date();
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
+
+/**
+ * "By category" / "By payment method" / "By payee" card: its own timeframe
+ * tabs + Expense/Income toggle, scoped to whatever account is selected above,
+ * with each bar clickable through to Activity pre-filtered accordingly.
+ */
+function BreakdownCard({
+  title,
+  emptyNoun,
+  accountFilter,
+  accountLabel,
+  fetcher,
+  buildFilter,
+}: {
+  title: string;
+  emptyNoun: string;
+  accountFilter: string;
+  accountLabel?: string;
+  fetcher: (
+    from: string,
+    to: string | null,
+    accountId: string | undefined,
+    type: 'expense' | 'income'
+  ) => Promise<CategoryTotal[]>;
+  buildFilter: (item: CategoryTotal, from: string, type: 'expense' | 'income') => ActivityFilter;
+}) {
+  const { openActivity } = useStore();
+  const [key, setKey] = useState<string>('month');
+  const [type, setType] = useState<'expense' | 'income'>('expense');
+  const [data, setData] = useState<CategoryTotal[]>([]);
+
+  const from = useMemo(() => {
+    const preset = ALL_PRESETS.find((p) => p.key === key);
+    return preset ? preset.from(Date.now()) : periodStart('month');
+  }, [key]);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      const rows = await fetcher(from, null, accountFilter || undefined, type).catch(() => []);
+      if (!cancelled) setData(rows);
+    })();
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [from, type, accountFilter]);
+
+  const max = data[0]?.total || 1;
+  const label = ALL_PRESETS.find((p) => p.key === key)?.label || 'This month';
+
+  return (
+    <section className="card">
+      <div className="cardhead">
+        <div>
+          <h2>{title}</h2>
+          <p>
+            {accountFilter ? `${accountLabel} · ` : ''}
+            {label}
+          </p>
+        </div>
+        <div className="segmented small">
+          <button
+            className={type === 'expense' ? 'selected' : ''}
+            onClick={() => setType('expense')}
+          >
+            Expense
+          </button>
+          <button className={type === 'income' ? 'selected' : ''} onClick={() => setType('income')}>
+            Income
+          </button>
+        </div>
+      </div>
+      <div className="cattabs">
+        {ALL_PRESETS.map((p) => (
+          <button
+            key={p.key}
+            className={key === p.key ? 'selected' : ''}
+            onClick={() => setKey(p.key)}
+          >
+            {p.label}
+          </button>
+        ))}
+      </div>
+      {data.length ? (
+        <div className="bars">
+          {data.map((c) => (
+            <div
+              className="bar"
+              key={c.id ?? 'none'}
+              onClick={() => openActivity(buildFilter(c, from, type))}
+            >
+              <span>{c.name}</span>
+              <i style={{ width: `${Math.max(7, (c.total / max) * 100)}%` }}></i>
+              <b>{money(c.total)}</b>
+            </div>
+          ))}
+        </div>
+      ) : (
+        <Empty text={`No ${type} recorded for any ${emptyNoun} in this period.`} />
+      )}
+    </section>
+  );
 }
 
 export function Dashboard() {
@@ -101,32 +206,6 @@ export function Dashboard() {
   };
 
   const availablePresets = ALL_PRESETS.filter((p) => !activeKeys.includes(p.key));
-
-  // ---- category breakdown: timeframe + expense/income + account scope ----
-  const [catKey, setCatKey] = useState<string>('month');
-  const [catType, setCatType] = useState<'expense' | 'income'>('expense');
-  const [catData, setCatData] = useState<CategoryTotal[]>([]);
-
-  useEffect(() => {
-    let cancelled = false;
-    const preset = ALL_PRESETS.find((p) => p.key === catKey);
-    const from = preset ? preset.from(Date.now()) : periodStart('month');
-    (async () => {
-      const rows = await api
-        .dashboardCategories(from, null, accountFilter || undefined, catType)
-        .catch(() => []);
-      if (!cancelled) setCatData(rows);
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [catKey, catType, accountFilter]);
-
-  const max = catData[0]?.total || 1;
-  const catFrom = useMemo(() => {
-    const preset = ALL_PRESETS.find((p) => p.key === catKey);
-    return preset ? preset.from(Date.now()) : periodStart('month');
-  }, [catKey]);
 
   const accountLabel = accountFilter
     ? accounts.find((a) => a.id === accountFilter)?.name
@@ -253,67 +332,50 @@ export function Dashboard() {
         </section>
       ) : null}
 
-      <section className="card">
-        <div className="cardhead">
-          <div>
-            <h2>By category</h2>
-            <p>
-              {accountFilter ? `${accountLabel} · ` : ''}
-              {ALL_PRESETS.find((p) => p.key === catKey)?.label || 'This month'}
-            </p>
-          </div>
-          <div className="segmented small">
-            <button
-              className={catType === 'expense' ? 'selected' : ''}
-              onClick={() => setCatType('expense')}
-            >
-              Expense
-            </button>
-            <button
-              className={catType === 'income' ? 'selected' : ''}
-              onClick={() => setCatType('income')}
-            >
-              Income
-            </button>
-          </div>
-        </div>
-        <div className="cattabs">
-          {ALL_PRESETS.map((p) => (
-            <button
-              key={p.key}
-              className={catKey === p.key ? 'selected' : ''}
-              onClick={() => setCatKey(p.key)}
-            >
-              {p.label}
-            </button>
-          ))}
-        </div>
-        {catData.length ? (
-          <div className="bars">
-            {catData.map((c) => (
-              <div
-                className="bar"
-                key={c.id ?? 'uncategorized'}
-                onClick={() =>
-                  openActivity({
-                    categoryId: c.id,
-                    type: catType,
-                    accountId: accountFilter || undefined,
-                    from: catFrom,
-                    label: `${c.name} · ${ALL_PRESETS.find((p) => p.key === catKey)?.label}`,
-                  })
-                }
-              >
-                <span>{c.name}</span>
-                <i style={{ width: `${Math.max(7, (c.total / max) * 100)}%` }}></i>
-                <b>{money(c.total)}</b>
-              </div>
-            ))}
-          </div>
-        ) : (
-          <Empty text={`No ${catType} recorded in this period.`} />
-        )}
-      </section>
+      <BreakdownCard
+        title="By category"
+        emptyNoun="category"
+        accountFilter={accountFilter}
+        accountLabel={accountLabel}
+        fetcher={(from, to, acct, type) => api.dashboardCategories(from, to, acct, type)}
+        buildFilter={(c, from, type) => ({
+          categoryId: c.id,
+          type,
+          accountId: accountFilter || undefined,
+          from,
+          label: `${c.name} · ${type}`,
+        })}
+      />
+
+      <BreakdownCard
+        title="By payment method"
+        emptyNoun="payment method"
+        accountFilter={accountFilter}
+        accountLabel={accountLabel}
+        fetcher={(from, to, acct, type) => api.dashboardBreakdown('method', from, to, acct, type)}
+        buildFilter={(c, from, type) => ({
+          methodId: c.id || undefined,
+          type,
+          accountId: accountFilter || undefined,
+          from,
+          label: `${c.name} · ${type}`,
+        })}
+      />
+
+      <BreakdownCard
+        title="By payee"
+        emptyNoun="payee"
+        accountFilter={accountFilter}
+        accountLabel={accountLabel}
+        fetcher={(from, to, acct, type) => api.dashboardBreakdown('payee', from, to, acct, type)}
+        buildFilter={(c, from, type) => ({
+          payeeId: c.id || undefined,
+          type,
+          accountId: accountFilter || undefined,
+          from,
+          label: `${c.name} · ${type}`,
+        })}
+      />
 
       <section className="card">
         <div className="cardhead">

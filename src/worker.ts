@@ -1,8 +1,9 @@
-import { Env, HttpError, json, corsHeaders } from './worker/http';
+import { Env, HttpError, json } from './worker/http';
 import { route } from './worker/routes';
 import { runRecurring } from './worker/recurring';
-import { driveBackup, driveStatus } from './worker/drive';
+import { driveBackup, driveStatus, setDriveBackupError } from './worker/drive';
 import { exportJson } from './worker/io';
+import { requireAccess } from './worker/access';
 
 export default {
   async fetch(request: Request, env: Env): Promise<Response> {
@@ -11,20 +12,15 @@ export default {
     // Serve the built SPA (and its assets) for anything that is not an API route.
     if (!url.pathname.startsWith('/api/')) return env.ASSETS.fetch(request);
 
-    // Handle CORS preflight.
-    if (request.method === 'OPTIONS') {
-      return new Response(null, { status: 204, headers: corsHeaders() });
-    }
-
     try {
+      requireAccess(request, url, env);
       return await route(request, url, env);
     } catch (e) {
       if (e instanceof HttpError) return json({ error: e.message }, { status: e.status });
-      // Single-user app: surface the real error message (and log the full stack)
-      // instead of a bare "Internal server error" that hides the actual cause.
+      // Log the full detail server-side only; never return internal exception
+      // messages (SQL errors, provider responses, etc.) to the client.
       console.error('Unhandled error handling', request.method, url.pathname, e);
-      const message = e instanceof Error ? e.message : 'Internal server error';
-      return json({ error: message }, { status: 500 });
+      return json({ error: 'Internal server error' }, { status: 500 });
     }
   },
 
@@ -42,6 +38,11 @@ export default {
       }
     } catch (e) {
       console.error('drive: automatic backup failed', e);
+      try {
+        await setDriveBackupError(env, e instanceof Error ? e.message : 'Automatic backup failed');
+      } catch (e2) {
+        console.error('drive: failed to persist backup error', e2);
+      }
     }
   },
 };

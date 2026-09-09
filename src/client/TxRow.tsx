@@ -49,7 +49,10 @@ export function TxRow({
           </span>
         )}
         {hasRefunds && (
-          <span className="txrefbadge">↩ Refunded {money(t.refunded_minor || 0)}</span>
+          <span className="txrefbadge">
+            ↩ Refunded {money(t.refunded_minor || 0)} · Net{' '}
+            {money(t.amount_minor - (t.refunded_minor || 0))}
+          </span>
         )}
         <small>
           {fmtDateTime(t.occurred_at)} · {t.account_name}
@@ -61,6 +64,11 @@ export function TxRow({
         <b className={isIncome ? 'positive' : ''}>
           {signedMoney(t.amount_minor, t.transaction_type)}
         </b>
+        {hasRefunds && (
+          <small>
+            Net {signedMoney(t.amount_minor - (t.refunded_minor || 0), t.transaction_type)}
+          </small>
+        )}
         {balance !== undefined && <small>Bal {money(balance)}</small>}
       </div>
     </button>
