@@ -121,8 +121,16 @@ export function TxDetail({
               {tx.refund_of_description || 'Expense'}
               {tx.refund_of_occurred_at ? ` · ${fmtDateTime(tx.refund_of_occurred_at)}` : ''}
             </span>
-            <b>View →</b>
+            <b>{tx.refund_of_amount_minor != null ? money(tx.refund_of_amount_minor) : 'View →'}</b>
           </button>
+          {tx.refund_siblings_total != null && tx.refund_of_amount_minor != null && (
+            <div className="splitview">
+              <span>This + other refunds so far</span>
+              <b className="positive">
+                {money(tx.refund_siblings_total)} of {money(tx.refund_of_amount_minor)}
+              </b>
+            </div>
+          )}
         </section>
       ) : null}
 
@@ -143,7 +151,7 @@ export function TxDetail({
             </button>
           ))}
           <div className="splitview">
-            <span>Total refunded</span>
+            <span>Total refunded of {money(tx.amount_minor)}</span>
             <b className="positive">+{money(tx.refunded_minor)}</b>
           </div>
         </section>

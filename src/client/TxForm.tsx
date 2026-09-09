@@ -114,8 +114,8 @@ export function TxForm({ id, title, close }: { id?: string; title: string; close
     [methods, accountId]
   );
   useEffect(() => {
-    if (!accountMethods.some((m) => m.id === methodId)) setMethodId('');
-  }, [accountId]); // eslint-disable-line react-hooks/exhaustive-deps
+    if (!accountMethods.some((m) => m.id === methodId)) setMethodId(accountMethods[0]?.id || '');
+  }, [accountId, accountMethods]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const cats = useMemo(
     () => categories.filter((c) => c.kind === 'both' || c.kind === type),
@@ -125,6 +125,14 @@ export function TxForm({ id, title, close }: { id?: string; title: string; close
     if (categoryId && !cats.some((c) => c.id === categoryId)) setCategoryId('');
   }, [type]); // eslint-disable-line react-hooks/exhaustive-deps
   const roots = cats.filter((c) => !c.parent_id);
+  const selectedCategoryLabel = useMemo(() => {
+    if (!categoryId) return '';
+    const c = categories.find((x) => x.id === categoryId);
+    if (!c) return '';
+    if (!c.parent_id) return c.name;
+    const parent = categories.find((x) => x.id === c.parent_id);
+    return parent ? `${parent.name} › ${c.name}` : c.name;
+  }, [categoryId, categories]);
   const expenses = useMemo(
     () => transactions.filter((t) => t.transaction_type === 'expense'),
     [transactions]
@@ -147,11 +155,14 @@ export function TxForm({ id, title, close }: { id?: string; title: string; close
     try {
       const minor = parse(amount);
       if (!minor || minor <= 0) throw new Error('Enter a valid amount.');
+      if (!accountId) throw new Error('Select an account.');
+      if (!methodId) throw new Error('Select a payment method (add one in Manage if none exist).');
+      if (!categoryId) throw new Error('Select a category.');
       const payload: Record<string, unknown> = {
         type,
         accountId,
-        categoryId: categoryId || null,
-        methodId: methodId || null,
+        categoryId,
+        methodId,
         amount: minor / 100,
         occurredAt: toIso(date),
         description,
@@ -263,7 +274,7 @@ export function TxForm({ id, title, close }: { id?: string; title: string; close
       </div>
 
       <label className="amount">
-        <span>Amount</span>
+        <span>Amount *</span>
         <div>
           ₹
           <input
@@ -280,7 +291,7 @@ export function TxForm({ id, title, close }: { id?: string; title: string; close
         <Field label="Date & time">
           <input type="datetime-local" value={date} onChange={(e) => setDate(e.target.value)} />
         </Field>
-        <Field label="Account">
+        <Field label="Account *">
           <select required value={accountId} onChange={(e) => setAccountId(e.target.value)}>
             {accounts.map((a: Account) => (
               <option key={a.id} value={a.id}>
@@ -289,9 +300,9 @@ export function TxForm({ id, title, close }: { id?: string; title: string; close
             ))}
           </select>
         </Field>
-        <Field label="Payment method">
-          <select value={methodId} onChange={(e) => setMethodId(e.target.value)}>
-            <option value="">Any / none</option>
+        <Field label="Payment method *">
+          <select required value={methodId} onChange={(e) => setMethodId(e.target.value)}>
+            {!accountMethods.length && <option value="">No methods — add one in Manage</option>}
             {accountMethods.map((m: PaymentMethod) => (
               <option key={m.id} value={m.id}>
                 {m.name}
@@ -300,9 +311,9 @@ export function TxForm({ id, title, close }: { id?: string; title: string; close
           </select>
         </Field>
         <div className="field relative">
-          <label>Category</label>
+          <label>Category *</label>
           <button type="button" className="picker" onClick={() => setCatOpen(!catOpen)}>
-            {categoryId ? categories.find((c) => c.id === categoryId)?.name : 'Select category'}
+            {selectedCategoryLabel || 'Select category'}
             <span>⌄</span>
           </button>
           {catOpen && (
@@ -446,7 +457,9 @@ export function TxForm({ id, title, close }: { id?: string; title: string; close
           className="link toggle-adv"
           onClick={() => setShowAdvanced(!showAdvanced)}
         >
-          {showAdvanced ? 'Hide' : 'Show'} advanced & splits ⌄
+          {showAdvanced
+            ? '︿ Hide split & attachments'
+            : '＋ Split into categories or add attachments'}
         </button>
 
         {showAdvanced && (

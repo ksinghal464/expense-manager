@@ -40,7 +40,11 @@ export function TxRow({
             }
           >
             ↩ Refund of {t.refund_of_description || 'expense'}
+            {t.refund_of_amount_minor != null ? ` (${money(t.refund_of_amount_minor)})` : ''}
             {t.refund_of_occurred_at ? ` · ${fmtDateTime(t.refund_of_occurred_at)}` : ''}
+            {t.refund_siblings_total != null && t.refund_of_amount_minor != null
+              ? ` · ${money(t.refund_siblings_total)} of ${money(t.refund_of_amount_minor)} refunded so far`
+              : ''}
           </span>
         )}
         {hasRefunds && (

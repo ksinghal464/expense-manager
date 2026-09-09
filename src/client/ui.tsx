@@ -151,7 +151,7 @@ export function FieldsModal({
     <Overlay onClose={close} centered>
       <ModalHead title={title} onClose={close} />
       {err && <Err msg={err} />}
-      <form onSubmit={submit}>
+      <form className="modalform" onSubmit={submit}>
         {fields.map((f) => (
           <Field key={f.key} label={f.label}>
             {f.type === 'select' ? (

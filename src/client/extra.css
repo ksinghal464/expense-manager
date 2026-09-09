@@ -805,3 +805,11 @@ input[type='file'] {
 .refundlink:hover {
   background: #f4f8fc;
 }
+
+/* --- FieldsModal (account/category/payment method/payee/tag dialogs) --- */
+.modalform .field {
+  margin-bottom: 16px;
+}
+.modalform .save {
+  margin-top: 6px;
+}

@@ -83,6 +83,8 @@ export interface TxView extends TxRow {
   payment_method_name: string | null;
   refund_of_description?: string | null;
   refund_of_occurred_at?: string | null;
+  refund_of_amount_minor?: number | null;
+  refund_siblings_total?: number;
   tags?: string[];
   splits?: SplitRow[];
   refunds?: TxView[];

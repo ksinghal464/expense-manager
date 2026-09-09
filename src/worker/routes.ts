@@ -27,9 +27,11 @@ export const INSERT_TX = `INSERT INTO transactions
 
 const TX_SELECT = `SELECT t.*, a.name AS account_name, c.name AS category_name, p.name AS payee_name,
   pm.name AS payment_method_name, parent.description AS refund_of_description,
-  parent.occurred_at AS refund_of_occurred_at,
+  parent.occurred_at AS refund_of_occurred_at, parent.amount_minor AS refund_of_amount_minor,
   (SELECT COALESCE(SUM(r.amount_minor),0) FROM transactions r
-    WHERE r.refunds_transaction_id=t.id AND r.deleted_at IS NULL) AS refunded_minor
+    WHERE r.refunds_transaction_id=t.id AND r.deleted_at IS NULL) AS refunded_minor,
+  (SELECT COALESCE(SUM(r2.amount_minor),0) FROM transactions r2
+    WHERE r2.refunds_transaction_id=t.refunds_transaction_id AND r2.deleted_at IS NULL) AS refund_siblings_total
   FROM transactions t
   JOIN accounts a ON a.id=t.account_id
   LEFT JOIN categories c ON c.id=t.category_id
@@ -216,9 +218,11 @@ async function createTransaction(env: Env, request: Request): Promise<Response> 
 
   const categoryId = optStr(b, 'categoryId');
   const methodId = optStr(b, 'methodId');
-  if (categoryId && !(await exists(env, 'categories', categoryId)))
+  if (!categoryId) throw new HttpError(400, 'categoryId is required');
+  if (!methodId) throw new HttpError(400, 'methodId is required');
+  if (!(await exists(env, 'categories', categoryId)))
     throw new HttpError(400, 'Category not found');
-  if (methodId && !(await exists(env, 'payment_methods', methodId)))
+  if (!(await exists(env, 'payment_methods', methodId)))
     throw new HttpError(400, 'Payment method not found');
 
   const refundsTransactionId = optStr(b, 'refundsTransactionId');
@@ -384,20 +388,14 @@ async function updateTransaction(env: Env, request: Request, txId: string): Prom
   const accountId = b['accountId'] !== undefined ? String(b['accountId']) : before.account_id;
   if (!(await exists(env, 'accounts', accountId))) throw new HttpError(400, 'Account not found');
   const methodId =
-    b['methodId'] === null
-      ? null
-      : b['methodId'] !== undefined
-        ? String(b['methodId'])
-        : before.payment_method_id;
+    b['methodId'] !== undefined ? String(b['methodId'] || '') : before.payment_method_id;
   const categoryId =
-    b['categoryId'] === null
-      ? null
-      : b['categoryId'] !== undefined
-        ? String(b['categoryId'])
-        : before.category_id;
-  if (methodId && !(await exists(env, 'payment_methods', methodId)))
+    b['categoryId'] !== undefined ? String(b['categoryId'] || '') : before.category_id;
+  if (!methodId) throw new HttpError(400, 'methodId is required');
+  if (!categoryId) throw new HttpError(400, 'categoryId is required');
+  if (!(await exists(env, 'payment_methods', methodId)))
     throw new HttpError(400, 'Payment method not found');
-  if (categoryId && !(await exists(env, 'categories', categoryId)))
+  if (!(await exists(env, 'categories', categoryId)))
     throw new HttpError(400, 'Category not found');
 
   let payeeId =
