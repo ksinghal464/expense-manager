@@ -14,6 +14,7 @@ type FrameData = {
   to: string | null;
   income: number;
   expense: number;
+  refunded: number;
 };
 
 type CustomWidget = { key: string; label: string; from: string; to: string | null };
@@ -390,7 +391,11 @@ export function Dashboard() {
         {activeKeys.map((key) => {
           const f = frameCache[key];
           if (!f) return null;
-          const net = f.income - f.expense;
+          // Refund income is tracked separately from regular income (see
+          // rangeStats in aggregate.ts) but is still real money back in the
+          // account, so it must be added back in for the net to match the
+          // Activity page's running balance for the same period.
+          const net = f.income - f.expense + f.refunded;
           return (
             <div className="framebox" key={key}>
               <div className="framehead">
