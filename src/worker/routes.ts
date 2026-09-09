@@ -942,6 +942,7 @@ async function ruleFromBody(
       ? clampInt(b['interval'], 1, 365, defaults.interval_value || 1)
       : defaults.interval_value || 1;
   if (!name) throw new HttpError(400, 'name is required');
+  if (!accountId) throw new HttpError(400, 'accountId is required');
   if (!TYPE_RE.test(type)) throw new HttpError(400, 'type must be expense or income');
   if (!(amount > 0)) throw new HttpError(400, 'amount must be greater than zero');
   if (!FREQ_RE.test(frequency)) throw new HttpError(400, 'invalid frequency');
@@ -951,13 +952,13 @@ async function ruleFromBody(
       ? null
       : b['categoryId'] !== undefined
         ? String(b['categoryId'])
-        : defaults.category_id;
+        : (defaults.category_id ?? null);
   const methodId =
     b['methodId'] === null
       ? null
       : b['methodId'] !== undefined
         ? String(b['methodId'])
-        : defaults.payment_method_id;
+        : (defaults.payment_method_id ?? null);
   if (categoryId && !(await exists(env, 'categories', categoryId)))
     throw new HttpError(400, 'Category not found');
   if (methodId && !(await exists(env, 'payment_methods', methodId)))
@@ -967,7 +968,7 @@ async function ruleFromBody(
       ? null
       : b['payeeId'] !== undefined
         ? String(b['payeeId'])
-        : defaults.payee_id;
+        : (defaults.payee_id ?? null);
   if (b['payee'] !== undefined) payeeId = await upsertPayee(env, str(b, 'payee'), at);
   const noOfPayments =
     b['noOfPayments'] === null || b['noOfPayments'] === undefined
@@ -1000,7 +1001,7 @@ async function createRecurring(env: Env, request: Request): Promise<Response> {
   const idVal = id();
   await env.DB.prepare(
     `INSERT INTO recurring_rules (id,name,transaction_type,account_id,payment_method_id,category_id,payee_id,amount_minor,description,note,frequency,interval_value,no_of_payments,next_due_at,is_active,created_at,updated_at)
-     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,1,?,?)`
+     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,1,?,?)`
   )
     .bind(
       idVal,
