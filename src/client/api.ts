@@ -163,8 +163,14 @@ export const api = {
   },
   exportJson: () => req<unknown>('/api/export/json'),
   restoreBackup: (backup: unknown) => post<{ restored: number }>('/api/import/backup', backup),
-  driveStatus: () => req<{ configured: boolean }>('/api/drive/status'),
-  driveSync: () => post<{ url?: string }>('/api/drive/sync', {}),
+  driveStatus: () =>
+    req<{ configured: boolean; connected: boolean; lastBackupAt: string | null; autoBackup: boolean }>(
+      '/api/drive/status'
+    ),
+  driveBackup: () => post<{ ok: boolean; fileId: string; backedUpAt: string }>('/api/drive/backup', {}),
+  driveRestore: () => post<{ restored: number }>('/api/drive/restore', {}),
+  driveDisconnect: () => post<{ ok: boolean }>('/api/drive/disconnect', {}),
+  driveSetAutoBackup: (enabled: boolean) => post<{ ok: boolean }>('/api/drive/auto-backup', { enabled }),
 
   audit: (qs?: Record<string, string>) => {
     const p = qs ? `?${new URLSearchParams(qs)}` : '';

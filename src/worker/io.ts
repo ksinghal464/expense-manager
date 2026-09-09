@@ -304,14 +304,13 @@ export async function importCsv(
     const r = t.row;
     const occurredAt = parseDDMMYYYY(r.date) || at;
     const status = r.status.trim().toLowerCase() === 'uncleared' ? 'uncleared' : 'cleared';
-    const qty = parseFloat(r.quantity);
     txStmts.push(
       env.DB.prepare(
         `INSERT INTO transactions
            (id,account_id,payment_method_id,category_id,payee_id,transaction_type,amount_minor,occurred_at,
-            description,note,status,reference_number,tax_minor,quantity,unit,refunds_transaction_id,
+            description,note,status,refunds_transaction_id,
             parent_transaction_id,recurring_rule_id,is_split_parent,created_at,updated_at)
-         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,0,?,?)`
+         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,0,?,?)`
       ).bind(
         txId,
         t.ctx.accountId,
@@ -324,10 +323,6 @@ export async function importCsv(
         r.description,
         '',
         status,
-        r.reference_number,
-        toMinorSafe(r.tax),
-        Number.isFinite(qty) ? qty : null,
-        r.unit,
         t.refundsTxId,
         null,
         null,
@@ -419,14 +414,10 @@ export async function exportCsv(
     'Subcategory',
     'Payment Method',
     'Description',
-    'Ref/Check No',
     'Payee/Payer',
     'Status',
     'Account',
     'Tag',
-    'Tax',
-    'Quantity',
-    'Unit',
     'Type',
   ];
   const lines = [header.join(',')];
@@ -435,7 +426,6 @@ export async function exportCsv(
     const amountStr = Number.isInteger(amount) ? String(amount) : amount.toFixed(2);
     const cat = r.parent_category_name || r.category_name || '';
     const sub = r.parent_category_name ? r.category_name || '' : '';
-    const tax = r.tax_minor ? (r.tax_minor / 100).toFixed(2) : '';
     const line = [
       toISTDate(r.occurred_at),
       amountStr,
@@ -443,14 +433,10 @@ export async function exportCsv(
       sub,
       r.method_name || '',
       r.description || '',
-      r.reference_number || '',
       r.payee_name || '',
       r.status,
       r.account_name || '',
       r.tags || '',
-      tax,
-      r.quantity ?? '',
-      r.unit || '',
       r.transaction_type,
     ]
       .map(csvEscape)
@@ -583,10 +569,6 @@ const RESTORE_ORDER: [string, string[]][] = [
       'description',
       'note',
       'status',
-      'reference_number',
-      'tax_minor',
-      'quantity',
-      'unit',
       'refunds_transaction_id',
       'parent_transaction_id',
       'recurring_rule_id',

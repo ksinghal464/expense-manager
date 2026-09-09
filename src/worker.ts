@@ -1,6 +1,8 @@
 import { Env, HttpError, json, corsHeaders } from './worker/http';
 import { route } from './worker/routes';
 import { runRecurring } from './worker/recurring';
+import { driveBackup, driveStatus } from './worker/drive';
+import { exportJson } from './worker/io';
 
 export default {
   async fetch(request: Request, env: Env): Promise<Response> {
@@ -18,8 +20,11 @@ export default {
       return await route(request, url, env);
     } catch (e) {
       if (e instanceof HttpError) return json({ error: e.message }, { status: e.status });
-      console.error(e);
-      return json({ error: 'Internal server error' }, { status: 500 });
+      // Single-user app: surface the real error message (and log the full stack)
+      // instead of a bare "Internal server error" that hides the actual cause.
+      console.error('Unhandled error handling', request.method, url.pathname, e);
+      const message = e instanceof Error ? e.message : 'Internal server error';
+      return json({ error: message }, { status: 500 });
     }
   },
 
@@ -28,5 +33,15 @@ export default {
     console.log(
       `recurring: created=${result.created} skipped=${result.skipped} deactivated=${result.deactivated}`
     );
+    try {
+      const status = await driveStatus(env);
+      if (status.configured && status.connected && status.autoBackup) {
+        const backup = await exportJson(env);
+        await driveBackup(env, backup);
+        console.log('drive: automatic backup completed');
+      }
+    } catch (e) {
+      console.error('drive: automatic backup failed', e);
+    }
   },
 };

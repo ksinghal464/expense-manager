@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { api, ImportSummary } from './api';
 import { useStore } from './store';
 import { Err } from './ui';
+import { fmtDateTime } from './lib';
 
 function download(name: string, text: string, type: string) {
   const blob = new Blob([text], { type });
@@ -15,21 +16,33 @@ function download(name: string, text: string, type: string) {
   setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
 
+type DriveStatus = {
+  configured: boolean;
+  connected: boolean;
+  lastBackupAt: string | null;
+  autoBackup: boolean;
+};
+
 export function ImportExport({ onDone }: { onDone?: () => void }) {
   const { refresh, toast } = useStore();
   const [busy, setBusy] = useState('');
   const [err, setErr] = useState('');
   const [summary, setSummary] = useState<ImportSummary | null>(null);
   const [mode, setMode] = useState<'append' | 'replace'>('append');
-  const [csvText, setCsvText] = useState('');
-  const [driveConfigured, setDriveConfigured] = useState(false);
+  const [drive, setDrive] = useState<DriveStatus | null>(null);
 
-  useEffect(() => {
+  const loadDrive = () =>
     api
       .driveStatus()
-      .then((s) => setDriveConfigured(s.configured))
-      .catch(() => setDriveConfigured(false));
-  }, []);
+      .then(setDrive)
+      .catch(() => setDrive(null));
+  useEffect(() => {
+    loadDrive();
+    // Reflect the redirect back from Google (see /api/drive/callback) in the URL.
+    const params = new URLSearchParams(window.location.search);
+    if (params.get('drive') === 'connected') toast('Google Drive connected');
+    if (params.get('drive') === 'error') setErr('Google Drive connection was cancelled or failed.');
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   const doImport = async (text: string) => {
     setBusy('Importing…');
@@ -52,7 +65,6 @@ export function ImportExport({ onDone }: { onDone?: () => void }) {
     const r = new FileReader();
     r.onload = () => {
       const text = String(r.result || '');
-      setCsvText(text);
       void doImport(text);
     };
     r.readAsText(f);
@@ -77,16 +89,56 @@ export function ImportExport({ onDone }: { onDone?: () => void }) {
     }
   };
 
-  const doDrive = async () => {
-    setBusy('Syncing to Drive…');
+  const doDriveBackup = async () => {
+    setBusy('Backing up to Drive…');
     setErr('');
     try {
-      const res = await api.driveSync();
-      toast(`Saved to Drive${res.url ? '' : ''}`);
+      await api.driveBackup();
+      await loadDrive();
+      toast('Backed up to Google Drive');
     } catch (e) {
-      setErr(e instanceof Error ? e.message : 'Drive sync failed');
+      setErr(e instanceof Error ? e.message : 'Drive backup failed');
     } finally {
       setBusy('');
+    }
+  };
+
+  const doDriveRestore = async () => {
+    if (!window.confirm('Restore from your Google Drive backup? This replaces all current data.'))
+      return;
+    setBusy('Restoring from Drive…');
+    setErr('');
+    try {
+      const res = await api.driveRestore();
+      await refresh();
+      toast(`Restored ${res.restored} records from Drive`);
+      onDone?.();
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : 'Drive restore failed');
+    } finally {
+      setBusy('');
+    }
+  };
+
+  const doDriveDisconnect = async () => {
+    setBusy('Disconnecting…');
+    try {
+      await api.driveDisconnect();
+      await loadDrive();
+      toast('Google Drive disconnected');
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : 'Unable to disconnect');
+    } finally {
+      setBusy('');
+    }
+  };
+
+  const toggleAutoBackup = async (enabled: boolean) => {
+    try {
+      await api.driveSetAutoBackup(enabled);
+      await loadDrive();
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : 'Unable to update auto-backup');
     }
   };
 
@@ -127,7 +179,7 @@ export function ImportExport({ onDone }: { onDone?: () => void }) {
       <section className="io">
         <h3>Import</h3>
         <div className="iohint">Legacy CSV or the CSV this app exports.</div>
-        <div className="segmented mini">
+        <div className="segmented">
           <button className={mode === 'append' ? 'selected' : ''} onClick={() => setMode('append')}>
             Append
           </button>
@@ -162,17 +214,53 @@ export function ImportExport({ onDone }: { onDone?: () => void }) {
         </div>
       </section>
 
-      {driveConfigured && (
-        <section className="io">
-          <h3>Google Drive</h3>
-          <div className="iohint">Push the latest full backup to your Drive.</div>
-          <div className="iorow">
-            <button className="outline" onClick={doDrive}>
-              Sync to Drive
-            </button>
+      <section className="io">
+        <h3>Google Drive</h3>
+        {!drive?.configured ? (
+          <div className="iohint">
+            Google Drive backup isn't set up on this deployment yet. Add GOOGLE_OAUTH_CLIENT_ID /
+            GOOGLE_OAUTH_CLIENT_SECRET as Worker secrets to enable it.
           </div>
-        </section>
-      )}
+        ) : !drive.connected ? (
+          <>
+            <div className="iohint">
+              Connect your own Google account. Backups are stored in a file only this app can see,
+              in your Drive — Drive is never the live database.
+            </div>
+            <div className="iorow">
+              <a className="outline" href="/api/drive/connect">
+                Connect Google Drive
+              </a>
+            </div>
+          </>
+        ) : (
+          <>
+            <div className="iohint">
+              Last backup:{' '}
+              {drive.lastBackupAt ? fmtDateTime(drive.lastBackupAt) : 'never — run Backup now.'}
+            </div>
+            <div className="iorow">
+              <button className="outline" onClick={doDriveBackup} disabled={!!busy}>
+                Backup now
+              </button>
+              <button className="outline" onClick={doDriveRestore} disabled={!!busy}>
+                Restore from Drive
+              </button>
+              <button className="outline" onClick={doDriveDisconnect} disabled={!!busy}>
+                Disconnect
+              </button>
+            </div>
+            <label className="confirmrow" style={{ marginTop: 10 }}>
+              <input
+                type="checkbox"
+                checked={drive.autoBackup}
+                onChange={(e) => toggleAutoBackup(e.target.checked)}
+              />
+              <span>Automatic daily backup</span>
+            </label>
+          </>
+        )}
+      </section>
 
       {onDone && (
         <div className="iorow close">

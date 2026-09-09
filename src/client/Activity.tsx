@@ -31,15 +31,7 @@ export function Activity() {
     if (type !== 'all') list = list.filter((t) => t.transaction_type === type);
     if (!q) return list;
     return list.filter((t) =>
-      [
-        t.description,
-        t.note,
-        t.category_name,
-        t.account_name,
-        t.payment_method_name,
-        t.payee_name,
-        t.reference_number,
-      ]
+      [t.description, t.note, t.category_name, t.account_name, t.payment_method_name, t.payee_name]
         .filter(Boolean)
         .join(' ')
         .toLowerCase()
@@ -95,7 +87,7 @@ export function Activity() {
 
       <div className="filterline">
         <span>{filtered.length} entries</span>
-        <div className="segmented mini">
+        <div className="segmented">
           {(
             [
               ['all', 'All'],

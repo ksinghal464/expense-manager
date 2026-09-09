@@ -17,5 +17,9 @@ migrations_dir = "migrations"
 crons = ["30 0 * * *"]
 
 # Secrets (set via `wrangler secret put <NAME>`):
-#   GOOGLE_DRIVE_SA_KEY  - base64/service-account JSON for Drive backup/restore (optional)
-#   DRIVE_BACKUP_FILE_ID - the Drive file used to store the JSON backup (optional)
+#   GOOGLE_OAUTH_CLIENT_ID     - OAuth 2.0 Web client ID from Google Cloud Console
+#   GOOGLE_OAUTH_CLIENT_SECRET - OAuth 2.0 Web client secret
+#   Redirect URI to register on the OAuth client:
+#     https://expense-manager.ksinghal464.workers.dev/api/drive/callback
+#   Scope requested: https://www.googleapis.com/auth/drive.file
+#   (per-file access only — the app can only see files it created itself)

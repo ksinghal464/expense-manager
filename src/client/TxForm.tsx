@@ -40,10 +40,6 @@ export function TxForm({ id, title, close }: { id?: string; title: string; close
   const [note, setNote] = useState('');
   const [payee, setPayee] = useState('');
   const [status, setStatus] = useState<TxStatus>('cleared');
-  const [referenceNumber, setReferenceNumber] = useState('');
-  const [tax, setTax] = useState('');
-  const [quantity, setQuantity] = useState('');
-  const [unit, setUnit] = useState('');
   const [refundsTxId, setRefundsTxId] = useState('');
   const [tagSel, setTagSel] = useState<string[]>([]);
   const [tagInput, setTagInput] = useState('');
@@ -71,10 +67,6 @@ export function TxForm({ id, title, close }: { id?: string; title: string; close
         setNote(t.note);
         setPayee(t.payee_name || '');
         setStatus(t.status);
-        setReferenceNumber(t.reference_number || '');
-        setTax(t.tax_minor ? toInput(t.tax_minor) : '');
-        setQuantity(t.quantity != null ? String(t.quantity) : '');
-        setUnit(t.unit || '');
         setRefundsTxId(t.refunds_transaction_id || '');
         setTagSel(t.tags || []);
         setSplits(
@@ -140,13 +132,9 @@ export function TxForm({ id, title, close }: { id?: string; title: string; close
         description,
         note,
         status,
-        referenceNumber,
         payee,
         tags: tagSel,
       };
-      if (tax) payload.tax = tax;
-      if (quantity) payload.quantity = quantity;
-      if (unit) payload.unit = unit;
       if (type === 'income' && refundsTxId) payload.refundsTransactionId = refundsTxId;
 
       if (hasSplits) {
@@ -399,37 +387,6 @@ export function TxForm({ id, title, close }: { id?: string; title: string; close
 
         {showAdvanced && (
           <div className="adv">
-            <div className="formgrid">
-              <Field label="Reference / check no.">
-                <input
-                  value={referenceNumber}
-                  onChange={(e) => setReferenceNumber(e.target.value)}
-                />
-              </Field>
-              <Field label="Tax (₹)">
-                <input
-                  inputMode="decimal"
-                  value={tax}
-                  onChange={(e) => setTax(e.target.value)}
-                  placeholder="0.00"
-                />
-              </Field>
-              <Field label="Quantity">
-                <input
-                  inputMode="decimal"
-                  value={quantity}
-                  onChange={(e) => setQuantity(e.target.value)}
-                />
-              </Field>
-              <Field label="Unit">
-                <input
-                  value={unit}
-                  onChange={(e) => setUnit(e.target.value)}
-                  placeholder="kg / hr / L"
-                />
-              </Field>
-            </div>
-
             <div className="splits">
               <div className="splitshead">
                 <h4>Split this amount</h4>

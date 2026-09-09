@@ -1,8 +1,8 @@
 export interface Env {
   DB: D1Database;
   ASSETS: Fetcher;
-  GOOGLE_DRIVE_SA_KEY?: string;
-  DRIVE_BACKUP_FILE_ID?: string;
+  GOOGLE_OAUTH_CLIENT_ID?: string;
+  GOOGLE_OAUTH_CLIENT_SECRET?: string;
 }
 
 /** Raised for expected client/server errors; message is safe to return. */

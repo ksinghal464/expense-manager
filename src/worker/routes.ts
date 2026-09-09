@@ -3,7 +3,15 @@ import { now, id, audit, exists, getEntity, toIso, toMinorStrict, clampInt } fro
 import { buildDashboard } from './aggregate';
 import { runRecurring, advanceDue } from './recurring';
 import { importCsv, exportCsv, exportJson, restoreBackup } from './io';
-import { driveSync, driveConfigured } from './drive';
+import {
+  driveAuthUrl,
+  driveBackup,
+  driveDisconnect,
+  driveHandleCallback,
+  driveRestore,
+  driveSetAutoBackup,
+  driveStatus,
+} from './drive';
 
 type Row = Record<string, any>;
 
@@ -13,9 +21,9 @@ const FREQ_RE = /^(daily|weekly|monthly|yearly)$/;
 
 export const INSERT_TX = `INSERT INTO transactions
   (id,account_id,payment_method_id,category_id,payee_id,transaction_type,amount_minor,occurred_at,
-   description,note,status,reference_number,tax_minor,quantity,unit,refunds_transaction_id,
+   description,note,status,refunds_transaction_id,
    parent_transaction_id,recurring_rule_id,is_split_parent,created_at,updated_at)
-   VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`;
+   VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`;
 
 const TX_SELECT = `SELECT t.*, a.name AS account_name, c.name AS category_name, p.name AS payee_name,
   pm.name AS payment_method_name
@@ -148,9 +156,9 @@ async function listTransactions(env: Env, url: URL): Promise<Response> {
     clauses.push(
       `(LOWER(t.description) LIKE LOWER(?) OR LOWER(t.note) LIKE LOWER(?) OR LOWER(COALESCE(c.name,'')) LIKE LOWER(?)
         OR LOWER(COALESCE(p.name,'')) LIKE LOWER(?) OR LOWER(a.name) LIKE LOWER(?)
-        OR LOWER(COALESCE(pm.name,'')) LIKE LOWER(?) OR t.reference_number LIKE ?)`
+        OR LOWER(COALESCE(pm.name,'')) LIKE LOWER(?))`
     );
-    params.push(s, s, s, s, s, s, s);
+    params.push(s, s, s, s, s, s);
   }
   if (type === 'income' || type === 'expense') {
     clauses.push('t.transaction_type=?');
@@ -234,13 +242,6 @@ async function createTransaction(env: Env, request: Request): Promise<Response> 
   const status = STATUS_RE.test(str(b, 'status')) ? str(b, 'status') : 'cleared';
   const description = str(b, 'description');
   const note = str(b, 'note');
-  const referenceNumber = str(b, 'referenceNumber');
-  const taxNum = Number(b['tax']);
-  const taxMinor = Number.isFinite(taxNum) ? Math.round(taxNum * 100) : 0;
-  const qRaw = b['quantity'];
-  const quantity =
-    qRaw === undefined || qRaw === null || String(qRaw).trim() === '' ? null : Number(qRaw);
-  const unit = str(b, 'unit');
   const occurredAt = toIso(b['occurredAt']);
 
   const txId = id();
@@ -281,10 +282,6 @@ async function createTransaction(env: Env, request: Request): Promise<Response> 
         description,
         note,
         status,
-        referenceNumber,
-        taxMinor,
-        quantity,
-        unit,
         refundsTransactionId,
         null,
         null,
@@ -314,10 +311,6 @@ async function createTransaction(env: Env, request: Request): Promise<Response> 
         description,
         note,
         status,
-        referenceNumber,
-        taxMinor,
-        quantity,
-        unit,
         refundsTransactionId,
         null,
         null,
@@ -366,13 +359,10 @@ async function createTransaction(env: Env, request: Request): Promise<Response> 
         .run();
   }
 
-  await audit(env, 'transaction', txId, 'create', null, {
-    id: txId,
-    transaction_type: type,
-    amount_minor: amountMinor,
-    refunds_transaction_id: refundsTransactionId,
-    is_split_parent: isSplitParent ? 1 : 0,
-  });
+  const created = await env.DB.prepare('SELECT * FROM transactions WHERE id=?')
+    .bind(txId)
+    .first<Row>();
+  await audit(env, 'transaction', txId, 'create', null, created);
   const detail = await txDetail(env, txId);
   return json(detail, { status: 201 });
 }
@@ -427,22 +417,11 @@ async function updateTransaction(env: Env, request: Request, txId: string): Prom
   const description =
     b['description'] !== undefined ? String(b['description']) : before.description;
   const note = b['note'] !== undefined ? String(b['note']) : before.note;
-  const referenceNumber =
-    b['referenceNumber'] !== undefined
-      ? String(b['referenceNumber'])
-      : before.reference_number || '';
-  const taxNum = b['tax'] !== undefined ? Number(b['tax']) : (before.tax_minor || 0) / 100;
-  const taxMinor = Number.isFinite(taxNum) ? Math.round(taxNum * 100) : 0;
-  const quantity =
-    b['quantity'] !== undefined && b['quantity'] !== null && String(b['quantity']).trim() !== ''
-      ? Number(b['quantity'])
-      : (before.quantity ?? null);
-  const unit = b['unit'] !== undefined ? String(b['unit']) : before.unit || '';
   const occurredAt = b['occurredAt'] !== undefined ? toIso(b['occurredAt']) : before.occurred_at;
 
   await env.DB.prepare(
     `UPDATE transactions SET account_id=?,payment_method_id=?,category_id=?,payee_id=?,transaction_type=?,amount_minor=?,
-     occurred_at=?,description=?,note=?,status=?,reference_number=?,tax_minor=?,quantity=?,unit=?,updated_at=?
+     occurred_at=?,description=?,note=?,status=?,updated_at=?
      WHERE id=?`
   )
     .bind(
@@ -456,10 +435,6 @@ async function updateTransaction(env: Env, request: Request, txId: string): Prom
       description,
       note,
       status,
-      referenceNumber,
-      taxMinor,
-      quantity,
-      unit,
       at,
       txId
     )
@@ -1278,9 +1253,15 @@ async function handleExportCsv(env: Env, url: URL): Promise<Response> {
   });
 }
 
-async function handleDriveSync(env: Env): Promise<Response> {
+async function handleDriveBackup(env: Env): Promise<Response> {
   const backup = await exportJson(env);
-  const res = await driveSync(env, backup);
+  const res = await driveBackup(env, backup);
+  return json(res);
+}
+
+async function handleDriveRestore(env: Env): Promise<Response> {
+  const backup = await driveRestore(env);
+  const res = await restoreBackup(env, backup);
   return json(res);
 }
 
@@ -1528,9 +1509,34 @@ export async function route(request: Request, url: URL, env: Env): Promise<Respo
   if (m === 'GET' && p === '/api/export/csv') return res(await handleExportCsv(env, url));
   if (m === 'GET' && (p === '/api/export/json' || p === '/api/backup'))
     return res(json(await exportJson(env)));
-  if (m === 'POST' && p === '/api/drive/sync') return res(await handleDriveSync(env));
-  if (m === 'GET' && p === '/api/drive/status')
-    return res(json({ configured: driveConfigured(env) }));
+  if (m === 'POST' && p === '/api/drive/backup') return res(await handleDriveBackup(env));
+  if (m === 'POST' && p === '/api/drive/restore') return res(await handleDriveRestore(env));
+  if (m === 'GET' && p === '/api/drive/status') return res(json(await driveStatus(env)));
+  if (m === 'GET' && p === '/api/drive/connect') {
+    const location = driveAuthUrl(env, url);
+    return res(new Response(null, { status: 302, headers: { location } }));
+  }
+  if (m === 'GET' && p === '/api/drive/callback') {
+    const code = url.searchParams.get('code');
+    const error = url.searchParams.get('error');
+    const back = `${url.protocol}//${url.host}/?manage=data`;
+    if (error)
+      return res(new Response(null, { status: 302, headers: { location: `${back}&drive=error` } }));
+    if (!code) throw new HttpError(400, 'Missing authorization code.');
+    await driveHandleCallback(env, url, code);
+    return res(
+      new Response(null, { status: 302, headers: { location: `${back}&drive=connected` } })
+    );
+  }
+  if (m === 'POST' && p === '/api/drive/disconnect') {
+    await driveDisconnect(env);
+    return res(json({ ok: true }));
+  }
+  if (m === 'POST' && p === '/api/drive/auto-backup') {
+    const b = await readJson(request);
+    await driveSetAutoBackup(env, Boolean(b['enabled']));
+    return res(json({ ok: true }));
+  }
   if (m === 'POST' && p === '/api/recurring/run') return res(json(await runRecurring(env)));
 
   return res(json({ error: 'Not found' }, { status: 404 }));

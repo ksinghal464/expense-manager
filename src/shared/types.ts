@@ -67,10 +67,6 @@ export interface TxRow {
   description: string;
   note: string;
   status: TxStatus;
-  reference_number: string;
-  tax_minor: number;
-  quantity: number | null;
-  unit: string;
   refunds_transaction_id: string | null;
   parent_transaction_id: string | null;
   recurring_rule_id: string | null;

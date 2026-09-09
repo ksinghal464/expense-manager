@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useState } from 'react';
 import { api, TxDetail as TxT, AttachmentRow } from './api';
 import { useStore } from './store';
-import { money, signedMoney, fmtDateTime, parseJson } from './lib';
+import { money, signedMoney, fmtDateTime } from './lib';
 import { Empty, Err } from './ui';
+import { AuditBody } from './auditFormat';
 import type { AuditEntry, Note } from '../shared/types';
 
 export function TxDetail({
@@ -14,7 +15,7 @@ export function TxDetail({
   fromTrash?: boolean;
   close: () => void;
 }) {
-  const { refresh, toast, open } = useStore();
+  const { refresh, toast, open, accounts, categories, methods, payees } = useStore();
   const [tx, setTx] = useState<TxT | null>(null);
   const [audit, setAudit] = useState<AuditEntry[]>([]);
   const [attach, setAttach] = useState<AttachmentRow[]>([]);
@@ -80,13 +81,8 @@ export function TxDetail({
         <Detail label="Payment method" value={tx.payment_method_name || '—'} />
         <Detail label="Category" value={tx.category_name || 'Uncategorized'} />
         <Detail label="Payee / payer" value={tx.payee_name || '—'} />
-        <Detail label="Reference" value={tx.reference_number || '—'} />
         <Detail label="Description" value={tx.description || '—'} />
         <Detail label="Note" value={tx.note || '—'} />
-        {tx.tax_minor ? <Detail label="Tax" value={money(tx.tax_minor)} /> : null}
-        {tx.quantity != null ? (
-          <Detail label="Quantity" value={`${tx.quantity}${tx.unit ? ' ' + tx.unit : ''}`} />
-        ) : null}
       </div>
 
       {tx.tags?.length ? (
@@ -142,7 +138,12 @@ export function TxDetail({
             <div>
               <strong>{a.action.charAt(0).toUpperCase() + a.action.slice(1)}</strong>
               <small>{fmtDateTime(a.occurred_at)}</small>
-              {a.action === 'update' && <AuditDiff before={a.before_json} after={a.after_json} />}
+              <AuditBody
+                action={a.action}
+                before={a.before_json}
+                after={a.after_json}
+                lookups={{ accounts, categories, methods, payees }}
+              />
             </div>
           </div>
         ))}
@@ -218,29 +219,6 @@ function Detail({ label, value }: { label: string; value: string }) {
     <div className="detail">
       <span>{label}</span>
       <strong>{value}</strong>
-    </div>
-  );
-}
-
-function AuditDiff({ before, after }: { before: string | null; after: string | null }) {
-  const b = parseJson(before) || {};
-  const a = parseJson(after) || {};
-  const keys = Array.from(new Set([...Object.keys(b), ...Object.keys(a)])).filter(
-    (k) =>
-      !['id', 'created_at', 'updated_at', 'deleted_at'].includes(k) &&
-      JSON.stringify(b[k]) !== JSON.stringify(a[k])
-  );
-  if (!keys.length) return null;
-  return (
-    <div className="auditdiff">
-      {keys.slice(0, 8).map((k) => (
-        <div key={k}>
-          <span>{k.replace(/_/g, ' ')}</span>
-          <del>{b[k] == null || b[k] === '' ? '—' : String(b[k])}</del>
-          <b>→</b>
-          <strong>{a[k] == null || a[k] === '' ? '—' : String(a[k])}</strong>
-        </div>
-      ))}
     </div>
   );
 }

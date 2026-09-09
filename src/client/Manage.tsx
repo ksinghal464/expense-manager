@@ -1,10 +1,11 @@
 import { useCallback, useEffect, useState } from 'react';
 import { api } from './api';
 import { useStore } from './store';
-import { money, fmtDateTime, toInput, parseJson } from './lib';
+import { money, fmtDateTime, toInput } from './lib';
 import { Empty, Err, Segmented, FieldsModal } from './ui';
 import { ImportExport } from './ImportExport';
 import { TxRow } from './TxRow';
+import { AuditBody } from './auditFormat';
 import type {
   Account,
   Category,
@@ -577,6 +578,7 @@ function TrashTab() {
 
 // ---------------- Audit ----------------
 function AuditTab() {
+  const { accounts, categories, methods, payees } = useStore();
   const [rows, setRows] = useState<AuditEntry[]>([]);
   const [err, setErr] = useState('');
   const [limit, setLimit] = useState(200);
@@ -616,9 +618,12 @@ function AuditTab() {
               </strong>
               <small>{fmtDateTime(a.occurred_at)}</small>
             </div>
-            {a.action === 'update' ? (
-              <AuditDiff before={a.before_json} after={a.after_json} />
-            ) : null}
+            <AuditBody
+              action={a.action}
+              before={a.before_json}
+              after={a.after_json}
+              lookups={{ accounts, categories, methods, payees }}
+            />
           </div>
         </div>
       ))}
@@ -629,28 +634,5 @@ function AuditTab() {
         </button>
       )}
     </section>
-  );
-}
-
-function AuditDiff({ before, after }: { before: string | null; after: string | null }) {
-  const b = parseJson(before) || {};
-  const a = parseJson(after) || {};
-  const keys = Array.from(new Set([...Object.keys(b), ...Object.keys(a)])).filter(
-    (k) =>
-      !['id', 'created_at', 'updated_at', 'deleted_at', 'sort_order', 'is_active'].includes(k) &&
-      JSON.stringify(b[k]) !== JSON.stringify(a[k])
-  );
-  if (!keys.length) return <div className="auditcreated">Record updated.</div>;
-  return (
-    <div className="auditdiff">
-      {keys.slice(0, 10).map((k) => (
-        <div key={k}>
-          <span>{k.replace(/_/g, ' ')}</span>
-          <del>{b[k] == null || b[k] === '' ? '—' : String(b[k])}</del>
-          <b>→</b>
-          <strong>{a[k] == null || a[k] === '' ? '—' : String(a[k])}</strong>
-        </div>
-      ))}
-    </div>
   );
 }
