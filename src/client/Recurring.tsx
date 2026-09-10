@@ -8,7 +8,7 @@ import type { RecurringRule, TxType, Account, PaymentMethod, Category, Payee } f
 type Freq = RecurringRule['frequency'];
 
 export function Recurring() {
-  const { accounts, methods, categories, payees, refresh, toast } = useStore();
+  const { accounts, methods, categories, payees, suggestions, refresh, toast } = useStore();
   const [rules, setRules] = useState<RecurringRule[]>([]);
   const [err, setErr] = useState('');
   const [editing, setEditing] = useState<RecurringRule | null>(null);
@@ -125,6 +125,7 @@ export function Recurring() {
           methods={methods}
           categories={categories}
           payees={payees}
+          suggestions={suggestions}
           close={() => {
             setCreating(false);
             setEditing(null);
@@ -146,6 +147,7 @@ function RuleForm({
   methods,
   categories,
   payees,
+  suggestions,
   close,
   saved,
 }: {
@@ -154,6 +156,7 @@ function RuleForm({
   methods: PaymentMethod[];
   categories: Category[];
   payees: Payee[];
+  suggestions: string[];
   close: () => void;
   saved: () => void | Promise<void>;
 }) {
@@ -173,11 +176,17 @@ function RuleForm({
   );
   const [nextDueAt, setNextDueAt] = useState(rule ? toInputLocal(rule.next_due_at) : dtLocalNow());
   const [description, setDescription] = useState(rule?.description || '');
+  const [descOpen, setDescOpen] = useState(false);
   const [note, setNote] = useState(rule?.note || '');
   const [saving, setSaving] = useState(false);
   const [err, setErr] = useState('');
 
   const ms = methods.filter((m) => m.account_id === accountId);
+  const descMatches = useMemo(() => {
+    const q = description.trim().toLowerCase();
+    if (!q) return suggestions.slice(0, 12);
+    return suggestions.filter((s) => s.toLowerCase().includes(q)).slice(0, 12);
+  }, [description, suggestions]);
   const cats = useMemo(
     () => categories.filter((c) => c.kind === 'both' || c.kind === type),
     [categories, type]
@@ -327,7 +336,39 @@ function RuleForm({
             </Field>
           </div>
           <Field label="Description">
-            <input value={description} onChange={(e) => setDescription(e.target.value)} />
+            <input
+              value={description}
+              onChange={(e) => {
+                setDescription(e.target.value);
+                setDescOpen(true);
+              }}
+              onFocus={() => setDescOpen(true)}
+              onBlur={() => window.setTimeout(() => setDescOpen(false), 150)}
+              onKeyDown={(e) => {
+                if (e.key === 'Escape') setDescOpen(false);
+              }}
+              autoComplete="off"
+            />
+            {descOpen && suggestions.length > 0 && (
+              <div className="descpopup">
+                {descMatches.length ? (
+                  descMatches.map((s) => (
+                    <button
+                      key={s}
+                      type="button"
+                      onClick={() => {
+                        setDescription(s);
+                        setDescOpen(false);
+                      }}
+                    >
+                      {s}
+                    </button>
+                  ))
+                ) : (
+                  <div className="popupempty">No matching saved values</div>
+                )}
+              </div>
+            )}
           </Field>
           <Field label="Note">
             <input value={note} onChange={(e) => setNote(e.target.value)} />
