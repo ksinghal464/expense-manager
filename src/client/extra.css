@@ -1434,6 +1434,66 @@ h1 {
   font-weight: 650;
 }
 
+/* The same quiet treatment, applied site-wide: every heading matches its
+   reduced size with a lighter weight; row titles and display amounts are
+   present-but-not-heavy; small labels step down from 700-800 to ~650.
+   (Semantic emphasis — warnings, errors, active states — keeps its weight.) */
+h2 {
+  font-weight: 650;
+  letter-spacing: -0.015em;
+}
+.manage-row strong,
+.txmain strong,
+.grouptitle strong {
+  font-weight: 600;
+}
+.grouptitle strong {
+  font-size: 13px;
+}
+.balance b,
+.detailamount b,
+.txamountcol b,
+.recurringrow b {
+  font-weight: 650;
+}
+.balance b {
+  font-size: 17px;
+}
+.recurringrow b {
+  font-size: 15px;
+}
+.tagrow > span {
+  font-weight: 650;
+}
+.catpick.rootpick b {
+  font-weight: 650;
+}
+.splitsum {
+  font-weight: 650;
+}
+.splitidx {
+  font-weight: 650;
+}
+.accountscope span {
+  font-weight: 650;
+}
+.accountscope select {
+  font-weight: 600;
+}
+.addwidget > span {
+  font-weight: 650;
+}
+.auditref b {
+  font-weight: 650;
+}
+.auditheadline strong,
+.detail strong {
+  font-weight: 600;
+}
+.typechoice b {
+  font-weight: 650;
+}
+
 @media (max-width: 650px) {
   /* Fixed bottom tab bar: respect the safe area on notched phones so the
      scrollbar/gesture bar doesn't sit flush against the tab labels. */
