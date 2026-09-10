@@ -218,14 +218,19 @@ export function Activity() {
     return { balanceById: map, overallBalance: overall };
   }, [filtered, narrowsWithinAccount, accounts]);
 
-  const groups: [string, string[]][] = options
+  // Each group also carries a short singular tag (shown on every suggestion
+  // button) so identical values from different fields — e.g. a "Other"
+  // category, payment method, and payee all existing at once — are still
+  // easy to tell apart in the popup instead of showing three unlabeled
+  // "Other" buttons in a row.
+  const groups: [string, string, string[]][] = options
     ? [
-        ['Descriptions', (options.descriptions || []).map((x) => x.value)],
-        ['Categories', (options.categories || []).map((x) => x.name)],
-        ['Payment methods', (options.methods || []).map((x) => x.name)],
-        ['Accounts', (options.accounts || []).map((x) => x.name)],
-        ['Payees', (options.payees || []).map((x) => x.name)],
-        ['Tags', (options.tags || []).map((x) => x.name)],
+        ['Descriptions', 'Description', (options.descriptions || []).map((x) => x.value)],
+        ['Categories', 'Category', (options.categories || []).map((x) => x.name)],
+        ['Payment methods', 'Method', (options.methods || []).map((x) => x.name)],
+        ['Accounts', 'Account', (options.accounts || []).map((x) => x.name)],
+        ['Payees', 'Payee', (options.payees || []).map((x) => x.name)],
+        ['Tags', 'Tag', (options.tags || []).map((x) => x.name)],
       ]
     : [];
 
@@ -283,7 +288,7 @@ export function Activity() {
         </div>
         {options && query.trim() && popupOpen && (
           <div className="searchpopup">
-            {groups.map(([label, vals]) =>
+            {groups.map(([label, tag, vals]) =>
               vals.length ? (
                 <div key={label}>
                   <label>{label}</label>
@@ -313,13 +318,13 @@ export function Activity() {
                       }}
                     >
                       {v}
-                      <span>⌕</span>
+                      <span>{tag}</span>
                     </button>
                   ))}
                 </div>
               ) : null
             )}
-            {groups.every(([, v]) => !v.length) && (
+            {groups.every(([, , v]) => !v.length) && (
               <div className="popupempty">No matching saved values</div>
             )}
           </div>
