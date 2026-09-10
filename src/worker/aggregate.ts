@@ -50,7 +50,9 @@ export async function rangeStats(
  * itself occurred in (matching rangeStats' income/refunded split), not the
  * period of the original expense. Refunds on split expenses are prorated
  * across the parent's splits proportionally to each split's share of the
- * parent amount.
+ * parent amount. Income breakdowns exclude refund rows entirely (they're
+ * never counted as income anywhere — see rangeStats) so a caller merging
+ * income − expense into a "balance" figure doesn't double-count them.
  */
 export async function categoryBreakdown(
   env: Env,
@@ -59,6 +61,12 @@ export async function categoryBreakdown(
   opts: { accountId?: string | null; type?: 'expense' | 'income' } = {}
 ): Promise<CategoryTotal[]> {
   const type = opts.type === 'income' ? 'income' : 'expense';
+  // Refunds are income-type rows too, but they're netted against expense (see
+  // applyRefundAdjustments below) rather than counted as income — exclude them
+  // here so they aren't double-counted when a caller merges income - expense
+  // into a "balance" figure (see mergeBalance in Dashboard.tsx).
+  const refundClauseA = type === 'income' ? 'AND t.refunds_transaction_id IS NULL' : '';
+  const refundClauseB = type === 'income' ? 'AND t.refunds_transaction_id IS NULL' : '';
   const acctClauseA = opts.accountId ? 'AND t.account_id = ?' : '';
   const acctClauseB = opts.accountId ? 'AND t.account_id = ?' : '';
   const toClauseA = to ? 'AND t.occurred_at < ?' : '';
@@ -70,14 +78,14 @@ export async function categoryBreakdown(
        SELECT t.category_id AS id, COALESCE(c.name, 'Uncategorized') AS name, t.amount_minor AS total
        FROM transactions t LEFT JOIN categories c ON c.id = t.category_id
        WHERE t.deleted_at IS NULL AND t.transaction_type='${type}' AND t.is_split_parent=0
-         AND t.occurred_at >= ? ${toClauseA} ${acctClauseA}
+         AND t.occurred_at >= ? ${toClauseA} ${acctClauseA} ${refundClauseA}
        UNION ALL
        SELECT s.category_id AS id, COALESCE(c.name, 'Uncategorized') AS name, s.amount_minor AS total
        FROM transaction_splits s
        JOIN transactions t ON t.id = s.transaction_id
        LEFT JOIN categories c ON c.id = s.category_id
        WHERE t.deleted_at IS NULL AND s.deleted_at IS NULL AND t.transaction_type='${type}'
-         AND t.is_split_parent=1 AND t.occurred_at >= ? ${toClauseB} ${acctClauseB}
+         AND t.is_split_parent=1 AND t.occurred_at >= ? ${toClauseB} ${acctClauseB} ${refundClauseB}
      )
      GROUP BY COALESCE(id, ''), name ORDER BY total DESC`
   )
@@ -202,7 +210,9 @@ async function applyRefundAdjustments(
  * single grouped query is enough. For expense breakdowns, refunds are
  * netted out of the refunded expense's own method/payee bucket (see
  * categoryBreakdown for the period/account semantics of when a refund is
- * counted).
+ * counted); income breakdowns exclude refund rows entirely so they aren't
+ * double-counted when a caller (e.g. mergeBalance in Dashboard.tsx) derives
+ * a balance as income − expense.
  */
 export async function entityBreakdown(
   env: Env,
@@ -218,6 +228,12 @@ export async function entityBreakdown(
   const fallbackName = dimension === 'method' ? 'No payment method' : 'No payee';
   const clauses = [`t.deleted_at IS NULL`, `t.transaction_type='${type}'`, 't.occurred_at >= ?'];
   const params: unknown[] = [from];
+  if (type === 'income') {
+    // Refunds are income-type rows but are netted against expense instead of
+    // counted as income (see the refund-adjustment block below) — exclude
+    // them here so mergeBalance (Dashboard.tsx) doesn't double-count them.
+    clauses.push('t.refunds_transaction_id IS NULL');
+  }
   if (to) {
     clauses.push('t.occurred_at < ?');
     params.push(to);

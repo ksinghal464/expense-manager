@@ -87,11 +87,12 @@ Cleared status has no effect.
 Refunds are recorded as `income`-type transactions linking back to the
 expense they credit via `refunds_transaction_id`; this keeps the true
 account balance calculation above correct (a refund is real money back in
-the account). Dashboard widgets, however, net refunds directly against the
-`expense` total instead of surfacing them as `income`, so the expense
-figure reflects the actual out-of-pocket amount and refunds are never
-shown mixed in with real income (see `rangeStats`/`categoryBreakdown` in
-`src/worker/aggregate.ts`).
+the account). Everywhere else — dashboard widgets, category breakdowns,
+and payment-method/payee breakdowns — refunds are netted directly against
+the `expense` total instead of being counted as `income`, so expense
+figures reflect the actual out-of-pocket amount and refunds never show up
+mixed in with real income (see `rangeStats`, `categoryBreakdown`, and
+`entityBreakdown` in `src/worker/aggregate.ts`).
 
 ## Rename rule
 
