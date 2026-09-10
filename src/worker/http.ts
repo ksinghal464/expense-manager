@@ -20,12 +20,14 @@ export class HttpError extends Error {
 export function json(data: unknown, init: ResponseInit = {}): Response {
   const headers = new Headers(init.headers);
   headers.set('content-type', 'application/json; charset=utf-8');
+  headers.set('cache-control', 'no-store');
   return new Response(JSON.stringify(data), { ...init, headers });
 }
 
 export function textBody(body: string, type: string, init: ResponseInit = {}): Response {
   const headers = new Headers(init.headers);
   headers.set('content-type', type);
+  headers.set('cache-control', 'no-store');
   return new Response(body, { ...init, headers });
 }
 
