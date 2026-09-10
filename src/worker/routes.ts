@@ -12,6 +12,7 @@ import {
   INSERT_TX_RECURRING_IDEMPOTENT,
   checkTxReferences,
   touchDescriptionSuggestion,
+  untouchDescriptionSuggestion,
   validateTxReferences,
 } from './db';
 import { buildDashboard, rangeStats, categoryBreakdown, entityBreakdown } from './aggregate';
@@ -554,7 +555,10 @@ async function updateTransaction(env: Env, request: Request, txId: string): Prom
       );
   }
 
-  await touchDescriptionSuggestion(env, description, at);
+  if (description !== before.description) {
+    await untouchDescriptionSuggestion(env, before.description, at);
+    await touchDescriptionSuggestion(env, description, at);
+  }
 
   const after: Row = (await env.DB.prepare('SELECT * FROM transactions WHERE id=?')
     .bind(txId)
@@ -577,6 +581,7 @@ async function deleteTransaction(env: Env, txId: string, hard: boolean): Promise
     await env.DB.prepare('UPDATE transactions SET deleted_at=?, updated_at=? WHERE id=?')
       .bind(at, at, txId)
       .run();
+    await untouchDescriptionSuggestion(env, before.description, at);
     await audit(env, 'transaction', txId, 'delete', before, { ...before, deleted_at: at });
     return json({ ok: true });
   }
@@ -591,6 +596,7 @@ async function deleteTransaction(env: Env, txId: string, hard: boolean): Promise
   await env.DB.prepare('DELETE FROM notes WHERE transaction_id=?').bind(txId).run();
   await env.DB.prepare('DELETE FROM attachments WHERE transaction_id=?').bind(txId).run();
   await env.DB.prepare('DELETE FROM transactions WHERE id=?').bind(txId).run();
+  await untouchDescriptionSuggestion(env, before.description, at);
   await audit(env, 'transaction', txId, 'delete', before, null, { hard: true });
   return json({ ok: true });
 }
@@ -606,6 +612,7 @@ async function restoreTransaction(env: Env, txId: string): Promise<Response> {
   await env.DB.prepare('UPDATE transactions SET deleted_at=NULL, updated_at=? WHERE id=?')
     .bind(at, txId)
     .run();
+  await touchDescriptionSuggestion(env, before.description, at);
   await audit(env, 'transaction', txId, 'restore', before, { ...before, deleted_at: null });
   return json({ ok: true });
 }

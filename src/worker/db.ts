@@ -226,3 +226,38 @@ export async function touchDescriptionSuggestion(
       .bind(id(), description, count, at, at, at)
       .run();
 }
+
+/**
+ * Un-feed the description autocomplete list: called whenever a transaction
+ * stops using a description (edited away from it, soft/hard-deleted). Without
+ * this, a description that's no longer used by any live transaction (e.g.
+ * "Gold coin 3gm" after the one transaction that used it was renamed) would
+ * keep showing up as a suggestion forever, since touchDescriptionSuggestion
+ * only ever increments. Decrements the matching row's usage_count and
+ * removes it entirely once it reaches zero. No-op for a blank description or
+ * a description with no matching suggestion row.
+ */
+export async function untouchDescriptionSuggestion(
+  env: Env,
+  description: string,
+  at: string,
+  count = 1
+): Promise<void> {
+  if (!description) return;
+  const ex = await env.DB.prepare(
+    'SELECT id, usage_count FROM description_suggestions WHERE lower(description)=lower(?)'
+  )
+    .bind(description)
+    .first<Row>();
+  if (!ex) return;
+  const remaining = ex.usage_count - count;
+  if (remaining <= 0) {
+    await env.DB.prepare('DELETE FROM description_suggestions WHERE id=?').bind(ex.id).run();
+  } else {
+    await env.DB.prepare(
+      'UPDATE description_suggestions SET usage_count=?, updated_at=? WHERE id=?'
+    )
+      .bind(remaining, at, ex.id)
+      .run();
+  }
+}
