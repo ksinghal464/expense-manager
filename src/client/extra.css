@@ -525,26 +525,11 @@ input[type='file'] {
   flex: 1 1 auto;
   min-width: 0;
 }
+/* The root row toggles its subcategories on click; a subtle chevron would
+   just add visual noise to a settings screen, so the pointer cursor is the
+   only affordance. */
 .catlist .catrow.root .catinfo {
   cursor: pointer;
-}
-.catcollapse {
-  flex: none !important;
-  width: 24px;
-  height: 24px;
-  border: 0;
-  background: none;
-  color: #7b8797;
-  font-size: 15px;
-  display: grid;
-  place-items: center;
-  border-radius: 8px;
-}
-.catcollapse:hover {
-  background: #eef2f6;
-}
-.catcollapse.hidden {
-  visibility: hidden;
 }
 .catlist .catrow .catinfo strong,
 .catlist .catrow .catinfo span {
@@ -1171,6 +1156,15 @@ h1 {
 .cardhead,
 .managerhead {
   margin-bottom: 10px;
+}
+/* Section titles are set in the default browser h2 size (24px / bold), which
+   reads as too heavy for these card headers. Dial the size and weight down so
+   the numbers/content stay the focus instead. */
+.cardhead h2,
+.managerhead h2 {
+  font-size: 17px;
+  font-weight: 650;
+  letter-spacing: -0.015em;
 }
 .tx {
   padding: 9px 3px;

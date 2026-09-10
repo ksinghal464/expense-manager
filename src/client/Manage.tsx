@@ -222,15 +222,6 @@ function CategoriesTab() {
           return (
             <div className="catgroup" key={r.id}>
               <div className="catrow root">
-                <button
-                  className={`catcollapse${children.length ? '' : ' hidden'}`}
-                  onClick={() => toggle(r.id)}
-                  disabled={!children.length}
-                  aria-label={isCollapsed ? 'Expand subcategories' : 'Collapse subcategories'}
-                  aria-expanded={!isCollapsed}
-                >
-                  {isCollapsed ? '›' : '⌄'}
-                </button>
                 <div className="catdot">
                   {r.kind === 'income' ? '↗' : r.kind === 'expense' ? '↘' : '↕'}
                 </div>
