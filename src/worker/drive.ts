@@ -256,25 +256,42 @@ export async function driveBackup(
     if (r.status === 404) {
       fileId = null; // file was removed on Drive; fall through to re-create it
     } else if (!r.ok) {
-      throw new HttpError(502, `Drive upload failed (${r.status}).`);
+      const detail = await r.text().catch(() => '');
+      throw new HttpError(502, `Drive upload failed (${r.status}). ${detail.slice(0, 300)}`);
     }
   }
 
   if (!fileId) {
-    const boundary = 'exp_' + crypto.randomUUID().replace(/-/g, '');
-    const meta = JSON.stringify({ name: BACKUP_FILE_NAME, mimeType: 'application/json' });
-    const multipart =
-      `--${boundary}\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n${meta}\r\n` +
-      `--${boundary}\r\nContent-Type: application/json\r\n\r\n${body}\r\n--${boundary}--`;
-    const r = await fetch(`${DRIVE_API}?uploadType=multipart&fields=id`, {
+    // Create the Drive file metadata first, then upload the JSON as media.
+    // This deliberately avoids hand-building a multipart/related body in the
+    // Worker. Google documents simple media upload + PATCH as a supported path,
+    // and it is much less sensitive to MIME boundary/encoding differences.
+    const create = await fetch(`${DRIVE_API}?fields=id`, {
       method: 'POST',
-      headers: { ...auth, 'content-type': `multipart/related; boundary=${boundary}` },
-      body: multipart,
+      headers: { ...auth, 'content-type': 'application/json; charset=utf-8' },
+      body: JSON.stringify({ name: BACKUP_FILE_NAME, mimeType: 'application/json' }),
     });
-    if (!r.ok) throw new HttpError(502, `Drive create failed (${r.status}).`);
-    const j = (await r.json()) as { id?: string };
-    if (!j.id) throw new HttpError(502, 'Drive create returned no file id.');
-    fileId = j.id;
+    if (!create.ok) {
+      const detail = await create.text().catch(() => '');
+      throw new HttpError(502, `Drive create failed (${create.status}). ${detail.slice(0, 300)}`);
+    }
+    const created = (await create.json()) as { id?: string };
+    if (!created.id) throw new HttpError(502, 'Drive create returned no file id.');
+    fileId = created.id;
+
+    const upload = await fetch(`${DRIVE_UPLOAD_API}/${fileId}?uploadType=media`, {
+      method: 'PATCH',
+      headers: { ...auth, 'content-type': 'application/json; charset=utf-8' },
+      body,
+    });
+    if (!upload.ok) {
+      const detail = await upload.text().catch(() => '');
+      // Best effort cleanup so a failed first backup does not leave an empty
+      // orphan file in the user's Drive.
+      await fetch(`${DRIVE_API}/${fileId}`, { method: 'DELETE', headers: auth }).catch(() => undefined);
+      throw new HttpError(502, `Drive upload failed (${upload.status}). ${detail.slice(0, 300)}`);
+    }
+
     await setSetting(env, 'drive_backup_file_id', fileId);
   }
 
@@ -287,12 +304,15 @@ export async function driveBackup(
 /** Download the full backup JSON currently stored on Drive. */
 export async function driveRestore(env: Env): Promise<unknown> {
   const fileId = await getSetting(env, 'drive_backup_file_id');
-  if (!fileId) throw new HttpError(404, 'No Drive backup found yet. Run "Backup now" first.');
+  if (!fileId) throw new HttpError(404, 'No Drive backup found yet. Run \"Backup now\" first.');
   const token = await getAccessToken(env);
   const r = await fetch(`${DRIVE_API}/${fileId}?alt=media`, {
     headers: { authorization: 'Bearer ' + token },
   });
-  if (!r.ok) throw new HttpError(502, `Drive download failed (${r.status}).`);
+  if (!r.ok) {
+    const detail = await r.text().catch(() => '');
+    throw new HttpError(502, `Drive download failed (${r.status}). ${detail.slice(0, 300)}`);
+  }
   return r.json();
 }
 
@@ -312,8 +332,8 @@ export async function setDriveBackupError(env: Env, message: string): Promise<vo
  * away. If it detects a `window.opener` (i.e. it really is running in a
  * popup opened by the app), it hands the result back via postMessage and
  * closes itself; otherwise (popup blocked, or the connect link was opened
- * in the same tab) it falls back to the previous behavior of redirecting
- * the current tab back into the app.
+ * in the same tab) it falls back to the previous behavior of redirecting the
+ * current tab back into the app.
  */
 export function driveCallbackHtml(status: 'connected' | 'error', back: string): string {
   const safeBack = JSON.stringify(back);
