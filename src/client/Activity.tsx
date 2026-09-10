@@ -296,8 +296,19 @@ export function Activity() {
                           .map((s) => s.trim())
                           .filter(Boolean);
                         const vLower = v.toLowerCase();
+                        // Replace the in-progress partial word these
+                        // suggestions were fetched for (e.g. "sam") with the
+                        // selected full value ("Samay Raina") instead of
+                        // appending alongside it — otherwise the box would
+                        // read "sam Samay Raina" instead of "Samay Raina".
+                        if (
+                          terms.length &&
+                          vLower.startsWith(terms[terms.length - 1].toLowerCase())
+                        ) {
+                          terms.pop();
+                        }
                         if (!terms.some((t) => t.toLowerCase() === vLower)) terms.push(v);
-                        setQuery(terms.join(' '));
+                        setQuery(terms.join(' ') + ' ');
                         setPopupOpen(false);
                       }}
                     >
