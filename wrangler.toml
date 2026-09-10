@@ -5,10 +5,12 @@ compatibility_date = "2026-09-08"
 [assets]
 directory = "./dist"
 not_found_handling = "single-page-application"
+# API routes must execute the Worker before the SPA fallback can serve index.html.
+run_worker_first = ["/api/*"]
 
-# The app has authenticated API routes and OAuth redirects. Do not let the
-# Workers Cache serve a stale SPA response for an /api/* request.
 [cache]
+# Never cache the API/router Worker. OAuth redirects and authenticated API responses
+# must always reach the Worker rather than receiving a stale SPA response.
 enabled = false
 
 [[d1_databases]]
