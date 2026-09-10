@@ -299,32 +299,33 @@ input[type='file'] {
 }
 .splitshead h4 {
   margin: 0;
-  font-size: 14px;
+  font-size: 13px;
+  font-weight: 650;
 }
-.splithint {
-  margin: -2px 0 2px;
+.splitof {
+  font-weight: 400;
+  color: #8493a6;
   font-size: 12px;
-  color: #718096;
 }
 .splitrow {
   display: grid;
-  grid-template-columns: 26px 1.3fr 0.8fr 1.1fr 1.2fr 34px;
-  gap: 8px;
+  grid-template-columns: 22px 1.3fr 0.8fr 1.1fr 1.2fr 30px;
+  gap: 6px;
   align-items: center;
 }
 .splitrow .splitdate {
   font-size: 12px;
-  padding: 9px 6px;
+  padding: 7px 6px;
 }
 .splitidx {
-  width: 26px;
-  height: 26px;
+  width: 22px;
+  height: 22px;
   display: grid;
   place-items: center;
   border-radius: 50%;
   background: #eef2f6;
   color: #56667a;
-  font-size: 12px;
+  font-size: 11px;
   font-weight: 700;
 }
 .splitrow input,
@@ -332,27 +333,28 @@ input[type='file'] {
   width: 100%;
   border: 1px solid #d8e0e9;
   background: #fbfcfd;
-  border-radius: 10px;
-  padding: 10px;
+  border-radius: 8px;
+  padding: 7px;
   outline: 0;
-}
-.splitrow select {
   font-size: 13px;
 }
+.splitrow select {
+  font-size: 12px;
+}
 .splitrm {
-  width: 34px;
-  height: 38px;
+  width: 30px;
+  height: 30px;
   border: 1px solid #f2cdd2;
   background: #fff6f7;
   color: #c23b47;
-  border-radius: 10px;
-  font-size: 16px;
+  border-radius: 8px;
+  font-size: 15px;
 }
 .splitsum {
-  font-size: 13px;
-  font-weight: 700;
-  padding: 9px 12px;
-  border-radius: 10px;
+  font-size: 12px;
+  font-weight: 650;
+  padding: 6px 10px;
+  border-radius: 8px;
   text-align: right;
 }
 .splitsum.ok {
@@ -474,8 +476,8 @@ input[type='file'] {
 .recurringrow {
   display: flex;
   align-items: center;
-  gap: 12px;
-  padding: 13px 0;
+  gap: 10px;
+  padding: 10px 0;
   border-bottom: 1px solid #edf0f4;
 }
 .recurringrow:last-child {
@@ -483,14 +485,18 @@ input[type='file'] {
 }
 .recurringrow b {
   white-space: nowrap;
+  font-size: 13px;
 }
 .recurringactions {
   display: flex;
-  gap: 6px;
+  gap: 4px;
   flex: none;
 }
 .recurringactions .chip {
-  padding: 7px 10px;
+  padding: 5px 8px;
+  font-size: 12px;
+  background: #fff;
+  border-color: #e4e9ef;
 }
 
 /* --- category list (manage) --- */
@@ -1246,22 +1252,28 @@ h1 {
   border-radius: 11px;
 }
 .amount {
-  margin-bottom: 12px;
+  margin-bottom: 10px;
+}
+.amount div b {
+  font-size: 20px;
 }
 .amount input {
-  font-size: 28px;
+  font-size: 22px;
+  padding: 3px 0;
 }
 .field input,
 .field select,
 .details input,
 .modalform input,
 .modalform select {
-  padding: 9px;
-  border-radius: 9px;
+  padding: 8px;
+  border-radius: 8px;
+  font-size: 13px;
 }
 .picker {
-  padding: 9px;
-  border-radius: 9px;
+  padding: 8px;
+  border-radius: 8px;
+  font-size: 13px;
 }
 .details {
   margin-top: 14px;
@@ -1271,9 +1283,6 @@ h1 {
 /* tx form: a bit tighter still now that the advanced section is always shown */
 .formgrid {
   gap: 11px;
-}
-.amount {
-  margin-bottom: 10px;
 }
 .adv {
   gap: 12px;
@@ -1484,7 +1493,7 @@ h2 {
   font-size: 17px;
 }
 .recurringrow b {
-  font-size: 15px;
+  font-size: 13px;
 }
 .tagrow > span {
   font-weight: 650;

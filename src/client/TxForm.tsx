@@ -35,6 +35,11 @@ type SplitDraft = {
 };
 type StagedFile = { key: string; file: File; dataUrl: string };
 
+// The split-into-multiple-categories editor is hidden for now (it was causing
+// user confusion) but left in place — flip this back to `true` to re-enable
+// the UI without touching any of the underlying logic/data handling.
+const SHOW_SPLIT_EDITOR = false;
+
 export function TxForm({
   id,
   title,
@@ -489,95 +494,92 @@ export function TxForm({
         </div>
 
         <div className="adv">
-          <div className="splits">
-            <div className="splitshead">
-              <h4>Split this amount</h4>
-              <button
-                type="button"
-                className="outline"
-                disabled={!splits.length}
-                onClick={() => setSplits([])}
-              >
-                Clear
-              </button>
-            </div>
-            <p className="splithint">
-              Split parts must add up to the full amount ({money(parse(amount) || 0)})
-              {splits.length > 0
-                ? ` — ${money(Math.max((parse(amount) || 0) - splitTotal, 0))} remaining`
-                : ''}
-              .
-            </p>
-            {splits.map((s, i) => (
-              <div className="splitrow" key={s.key}>
-                <span className="splitidx">{i + 1}</span>
-                <select
-                  value={s.categoryId}
-                  onChange={(e) => updateSplit(s.key, { categoryId: e.target.value })}
-                >
-                  <option value="">Category</option>
-                  {roots.map((r) => (
-                    <optgroup key={r.id} label={r.name}>
-                      <option value={r.id}>{r.name} (general)</option>
-                      {categoryChildren(cats, r.id).map((c) => (
-                        <option key={c.id} value={c.id}>
-                          {c.name}
-                        </option>
-                      ))}
-                    </optgroup>
-                  ))}
-                </select>
-                <input
-                  inputMode="decimal"
-                  className="splitamt"
-                  value={s.amount}
-                  onChange={(e) => updateSplit(s.key, { amount: e.target.value })}
-                  placeholder="0.00"
-                />
-                <input
-                  value={s.description}
-                  onChange={(e) => updateSplit(s.key, { description: e.target.value })}
-                  placeholder="Description"
-                />
-                <input
-                  type="datetime-local"
-                  className="splitdate"
-                  value={s.occurredAt}
-                  onChange={(e) => updateSplit(s.key, { occurredAt: e.target.value })}
-                  title="Date for this split part (defaults to the transaction date)"
-                />
+          {SHOW_SPLIT_EDITOR && (
+            <div className="splits">
+              <div className="splitshead">
+                <h4>
+                  Split this amount <span className="splitof">of {money(parse(amount) || 0)}</span>
+                </h4>
                 <button
                   type="button"
-                  className="splitrm"
-                  onClick={() => setSplits(splits.filter((x) => x.key !== s.key))}
+                  className="outline"
+                  disabled={!splits.length}
+                  onClick={() => setSplits([])}
                 >
-                  ×
+                  Clear
                 </button>
               </div>
-            ))}
-            <button
-              type="button"
-              className="link"
-              onClick={() =>
-                setSplits([
-                  ...splits,
-                  { key: uid(), categoryId: '', amount: '', description: '', occurredAt: date },
-                ])
-              }
-            >
-              ＋ Add split part
-            </button>
-            {splits.length > 0 && (
-              <div className={`splitsum${splitMismatch ? ' bad' : ' ok'}`}>
-                Total {money(splitTotal)} {hasSplits ? `/ ${money(parse(amount) || 0)}` : ''}
-                {splitMismatch && (
-                  <span className="splitwarn">
-                    ⚠ Splits must add up to the transaction amount before you can save.
-                  </span>
-                )}
-              </div>
-            )}
-          </div>
+              {splits.map((s, i) => (
+                <div className="splitrow" key={s.key}>
+                  <span className="splitidx">{i + 1}</span>
+                  <select
+                    value={s.categoryId}
+                    onChange={(e) => updateSplit(s.key, { categoryId: e.target.value })}
+                  >
+                    <option value="">Category</option>
+                    {roots.map((r) => (
+                      <optgroup key={r.id} label={r.name}>
+                        <option value={r.id}>{r.name} (general)</option>
+                        {categoryChildren(cats, r.id).map((c) => (
+                          <option key={c.id} value={c.id}>
+                            {c.name}
+                          </option>
+                        ))}
+                      </optgroup>
+                    ))}
+                  </select>
+                  <input
+                    inputMode="decimal"
+                    className="splitamt"
+                    value={s.amount}
+                    onChange={(e) => updateSplit(s.key, { amount: e.target.value })}
+                    placeholder="0.00"
+                  />
+                  <input
+                    value={s.description}
+                    onChange={(e) => updateSplit(s.key, { description: e.target.value })}
+                    placeholder="Description"
+                  />
+                  <input
+                    type="datetime-local"
+                    className="splitdate"
+                    value={s.occurredAt}
+                    onChange={(e) => updateSplit(s.key, { occurredAt: e.target.value })}
+                    title="Date for this split part (defaults to the transaction date)"
+                  />
+                  <button
+                    type="button"
+                    className="splitrm"
+                    onClick={() => setSplits(splits.filter((x) => x.key !== s.key))}
+                  >
+                    ×
+                  </button>
+                </div>
+              ))}
+              <button
+                type="button"
+                className="link"
+                onClick={() =>
+                  setSplits([
+                    ...splits,
+                    { key: uid(), categoryId: '', amount: '', description: '', occurredAt: date },
+                  ])
+                }
+              >
+                ＋ Add split part
+              </button>
+              {splits.length > 0 && (
+                <div className={`splitsum${splitMismatch ? ' bad' : ' ok'}`}>
+                  Total {money(splitTotal)} {hasSplits ? `/ ${money(parse(amount) || 0)}` : ''}
+                  {splitMismatch && (
+                    <span className="splitwarn">
+                      ⚠ Splits must add up to the transaction amount before you can save.
+                    </span>
+                  )}
+                </div>
+              )}
+            </div>
+          )}
 
           <div className="mini">
             <h4>Attachments</h4>
