@@ -133,7 +133,15 @@ export function Activity() {
   const filtered = useMemo(() => {
     const terms = query.trim().toLowerCase().split(/\s+/).filter(Boolean);
     let list = transactions;
-    if (type !== 'all') list = list.filter((t) => t.transaction_type === type);
+    if (type === 'expense') {
+      // Refunds net against expense (see rangeStats in aggregate.ts), so include
+      // them here too so this list's total matches the dashboard's expense widget.
+      list = list.filter((t) => t.transaction_type === 'expense' || !!t.refunds_transaction_id);
+    } else if (type === 'income') {
+      // Refunds are excluded from "income" everywhere (dashboard + here) so they
+      // never get confused with real income.
+      list = list.filter((t) => t.transaction_type === 'income' && !t.refunds_transaction_id);
+    }
     if (accountId) list = list.filter((t) => t.account_id === accountId);
     if (categoryId !== undefined) list = list.filter((t) => (t.category_id || null) === categoryId);
     if (methodId) list = list.filter((t) => t.payment_method_id === methodId);

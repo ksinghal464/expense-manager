@@ -84,6 +84,15 @@ Receipt bytes live outside D1; D1 stores the reference.
 
 Cleared status has no effect.
 
+Refunds are recorded as `income`-type transactions linking back to the
+expense they credit via `refunds_transaction_id`; this keeps the true
+account balance calculation above correct (a refund is real money back in
+the account). Dashboard widgets, however, net refunds directly against the
+`expense` total instead of surfacing them as `income`, so the expense
+figure reflects the actual out-of-pocket amount and refunds are never
+shown mixed in with real income (see `rangeStats`/`categoryBreakdown` in
+`src/worker/aggregate.ts`).
+
 ## Rename rule
 
 Transactions store foreign keys to master records. Renaming a category, account, payment method, or payee changes the master record only; existing transactions automatically display the new name. The rename itself is audited.

@@ -23,14 +23,18 @@ export async function rangeStats(
   }
   const r = await env.DB.prepare(
     `SELECT
-       SUM(CASE WHEN transaction_type='expense' THEN amount_minor ELSE 0 END) AS expense,
+       SUM(CASE WHEN transaction_type='expense' THEN amount_minor ELSE 0 END) AS grossExpense,
        SUM(CASE WHEN transaction_type='income' AND refunds_transaction_id IS NULL THEN amount_minor ELSE 0 END) AS income,
        SUM(CASE WHEN transaction_type='income' AND refunds_transaction_id IS NOT NULL THEN amount_minor ELSE 0 END) AS refunded
      FROM transactions WHERE ${clauses.join(' AND ')}`
   )
     .bind(...params)
     .first<Row>();
-  return { expense: r?.expense ?? 0, income: r?.income ?? 0, refunded: r?.refunded ?? 0 };
+  const refunded = r?.refunded ?? 0;
+  // Refunds net directly against expense (treated as "-expense") rather than being
+  // folded into income, so the expense widget reflects the true out-of-pocket amount.
+  const expense = (r?.grossExpense ?? 0) - refunded;
+  return { expense, income: r?.income ?? 0, refunded };
 }
 
 /**

@@ -379,11 +379,9 @@ export function Dashboard() {
         {activeKeys.map((key) => {
           const f = frameCache[key];
           if (!f) return null;
-          // Refund income is tracked separately from regular income (see
-          // rangeStats in aggregate.ts) but is still real money back in the
-          // account, so it must be added back in for the net to match the
-          // Activity page's running balance for the same period.
-          const net = f.income - f.expense + f.refunded;
+          // Refunds are netted directly against expense (see rangeStats in
+          // aggregate.ts), so no separate add-back is needed here.
+          const net = f.income - f.expense;
           return (
             <div className="framebox" key={key}>
               <div className="framehead">
