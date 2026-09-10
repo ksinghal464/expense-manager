@@ -125,7 +125,7 @@ function AccountsTab() {
             kind="account"
             onDel={async () => {
               await api.deleteAccount(a.id);
-              await refresh();
+              refresh();
               toast('Account deleted');
             }}
           />
@@ -164,7 +164,7 @@ function AccountsTab() {
               openingBalance: parseFloat(v.openingBalance) || 0,
               currency: v.currency || 'INR',
             });
-            await refresh();
+            refresh();
             toast(editing ? 'Account updated' : 'Account added');
           }}
         />
@@ -227,7 +227,7 @@ function CategoriesTab() {
                     kind="category"
                     onDel={async () => {
                       await api.deleteCategory(r.id);
-                      await refresh();
+                      refresh();
                       toast('Category deleted');
                     }}
                   />
@@ -258,7 +258,7 @@ function CategoriesTab() {
                       kind="category"
                       onDel={async () => {
                         await api.deleteCategory(c.id);
-                        await refresh();
+                        refresh();
                         toast('Category deleted');
                       }}
                     />
@@ -320,7 +320,7 @@ function CategoriesTab() {
               kind: v.kind as CategoryKind,
               parentId: v.parentId || null,
             });
-            await refresh();
+            refresh();
             toast(editing ? 'Category updated' : 'Category added');
           }}
         />
@@ -367,7 +367,7 @@ function MethodsTab() {
                   kind="payment method"
                   onDel={async () => {
                     await api.deletePaymentMethod(m.id);
-                    await refresh();
+                    refresh();
                     toast('Method deleted');
                   }}
                 />
@@ -403,7 +403,7 @@ function MethodsTab() {
               name: v.name,
               accountId: v.accountId,
             });
-            await refresh();
+            refresh();
             toast(editing ? 'Method updated' : 'Method added');
           }}
         />
@@ -441,7 +441,7 @@ function PayeesTab() {
             kind="payee"
             onDel={async () => {
               await api.deletePayee(p.id);
-              await refresh();
+              refresh();
               toast('Payee deleted');
             }}
           />
@@ -463,7 +463,7 @@ function PayeesTab() {
           initial={editing ? { name: editing.name, address: editing.address } : undefined}
           onSave={async (v) => {
             await api.savePayee(editing?.id || null, { name: v.name, address: v.address });
-            await refresh();
+            refresh();
             toast(editing ? 'Payee updated' : 'Payee added');
           }}
         />
@@ -501,7 +501,7 @@ function TagsTab() {
             kind="tag"
             onDel={async () => {
               await api.deleteTag(t.id);
-              await refresh();
+              refresh();
               toast('Tag deleted');
             }}
           />
@@ -520,7 +520,7 @@ function TagsTab() {
           initial={editing ? { name: editing.name } : undefined}
           onSave={async (v) => {
             await api.saveTag(editing?.id || null, { name: v.name });
-            await refresh();
+            refresh();
             toast(editing ? 'Tag updated' : 'Tag added');
           }}
         />
@@ -584,7 +584,7 @@ function TrashTab() {
           onConfirm={async () => {
             await api.purgeTrash();
             await reload();
-            await refresh();
+            refresh();
             toast('Trash emptied');
           }}
           close={() => setConfirming(false)}

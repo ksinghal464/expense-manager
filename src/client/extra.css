@@ -451,6 +451,8 @@ input[type='file'] {
 }
 .attachform {
   margin-top: 4px;
+  display: grid;
+  gap: 8px;
 }
 .attachpick {
   display: inline-flex;
@@ -1203,9 +1205,6 @@ h1 {
 }
 .amount input {
   font-size: 28px;
-}
-.formgrid {
-  gap: 10px;
 }
 .field input,
 .field select,

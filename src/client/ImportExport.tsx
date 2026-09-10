@@ -31,13 +31,15 @@ export function ImportExport({ onDone }: { onDone?: () => void }) {
   const [summary, setSummary] = useState<ImportSummary | null>(null);
   const [mode, setMode] = useState<'append' | 'replace'>('append');
   const [drive, setDrive] = useState<DriveStatus | null>(null);
+  const [driveLoading, setDriveLoading] = useState(true);
   const [connecting, setConnecting] = useState(false);
 
   const loadDrive = () =>
     api
       .driveStatus()
       .then(setDrive)
-      .catch(() => setDrive(null));
+      .catch(() => setDrive(null))
+      .finally(() => setDriveLoading(false));
   useEffect(() => {
     loadDrive();
     // Reflect the redirect back from Google (see /api/drive/callback) in the URL.
@@ -275,7 +277,9 @@ export function ImportExport({ onDone }: { onDone?: () => void }) {
 
       <section className="io">
         <h3>Google Drive</h3>
-        {!drive?.configured ? (
+        {driveLoading ? (
+          <div className="iohint">Checking Google Drive status…</div>
+        ) : !drive?.configured ? (
           <div className="iohint">
             Google Drive backup isn't set up on this deployment yet. Add GOOGLE_OAUTH_CLIENT_ID /
             GOOGLE_OAUTH_CLIENT_SECRET as Worker secrets to enable it.

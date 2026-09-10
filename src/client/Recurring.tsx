@@ -3,12 +3,12 @@ import { api } from './api';
 import { useStore } from './store';
 import { money, fmtDateTime, toInput, dtLocalNow, toIso, avatarLetter } from './lib';
 import { Empty, Err, Field, SaveButton, Segmented, ConfirmDialog, CategoryPicker } from './ui';
-import type { RecurringRule, TxType, Account, PaymentMethod, Category } from '../shared/types';
+import type { RecurringRule, TxType, Account, PaymentMethod, Category, Payee } from '../shared/types';
 
 type Freq = RecurringRule['frequency'];
 
 export function Recurring() {
-  const { accounts, methods, categories, refresh, toast } = useStore();
+  const { accounts, methods, categories, payees, refresh, toast } = useStore();
   const [rules, setRules] = useState<RecurringRule[]>([]);
   const [err, setErr] = useState('');
   const [editing, setEditing] = useState<RecurringRule | null>(null);
@@ -124,6 +124,7 @@ export function Recurring() {
           accounts={accounts}
           methods={methods}
           categories={categories}
+          payees={payees}
           close={() => {
             setCreating(false);
             setEditing(null);
@@ -144,6 +145,7 @@ function RuleForm({
   accounts,
   methods,
   categories,
+  payees,
   close,
   saved,
 }: {
@@ -151,6 +153,7 @@ function RuleForm({
   accounts: Account[];
   methods: PaymentMethod[];
   categories: Category[];
+  payees: Payee[];
   close: () => void;
   saved: () => void | Promise<void>;
 }) {
@@ -159,6 +162,9 @@ function RuleForm({
   const [accountId, setAccountId] = useState(rule?.account_id || '');
   const [methodId, setMethodId] = useState(rule?.payment_method_id || '');
   const [categoryId, setCategoryId] = useState(rule?.category_id || '');
+  const [payee, setPayee] = useState(
+    () => payees.find((p) => p.id === rule?.payee_id)?.name || ''
+  );
   const [amount, setAmount] = useState(rule ? toInput(rule.amount_minor) : '');
   const [frequency, setFrequency] = useState<Freq>(rule?.frequency || 'monthly');
   const [interval, setInterval] = useState(String(rule?.interval_value || 1));
@@ -191,6 +197,7 @@ function RuleForm({
         accountId,
         methodId: methodId || null,
         categoryId: categoryId || null,
+        payee,
         amount: parseFloat(amount) || 0,
         frequency,
         interval: parseInt(interval) || 1,
@@ -304,6 +311,19 @@ function RuleForm({
                 value={nextDueAt}
                 onChange={(e) => setNextDueAt(e.target.value)}
               />
+            </Field>
+            <Field label="Payee / payer">
+              <input
+                value={payee}
+                onChange={(e) => setPayee(e.target.value)}
+                list="recurring-payees"
+                placeholder="Who is this with?"
+              />
+              <datalist id="recurring-payees">
+                {payees.map((p) => (
+                  <option key={p.id} value={p.name} />
+                ))}
+              </datalist>
             </Field>
           </div>
           <Field label="Description">

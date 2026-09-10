@@ -250,8 +250,8 @@ export function TxForm({
       }
 
       toast(id ? 'Transaction updated' : 'Transaction saved');
-      await refresh();
       close();
+      refresh();
     } catch (ex) {
       setErr(ex instanceof Error ? ex.message : 'Unable to save');
     } finally {
