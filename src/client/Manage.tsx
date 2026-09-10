@@ -1,7 +1,15 @@
 import { useCallback, useEffect, useState } from 'react';
 import { api } from './api';
 import { useStore } from './store';
-import { money, fmtDateTime, toInput, parseJson, categoryRoots, categoryChildren } from './lib';
+import {
+  money,
+  fmtDateTime,
+  toInput,
+  parseJson,
+  categoryRoots,
+  categoryChildren,
+  avatarLetter,
+} from './lib';
 import { Empty, Err, Segmented, FieldsModal, ConfirmDialog } from './ui';
 import { ImportExport } from './ImportExport';
 import { TxRow } from './TxRow';
@@ -222,9 +230,7 @@ function CategoriesTab() {
           return (
             <div className="catgroup" key={r.id}>
               <div className="catrow root">
-                <div className="catdot">
-                  {r.kind === 'income' ? '↗' : r.kind === 'expense' ? '↘' : '↕'}
-                </div>
+                <div className="catdot">{avatarLetter(r.name)}</div>
                 <div className="catinfo" onClick={() => children.length && toggle(r.id)}>
                   <strong>{r.name}</strong>
                   <span>
@@ -250,9 +256,7 @@ function CategoriesTab() {
                 children.map((c) => (
                   <div className="catrow child" key={c.id}>
                     <div className="branch">↳</div>
-                    <div className="catdot small">
-                      {c.kind === 'income' ? '↗' : c.kind === 'expense' ? '↘' : '↕'}
-                    </div>
+                    <div className="catdot small">{avatarLetter(c.name)}</div>
                     <div className="catinfo">
                       <strong>{c.name}</strong>
                       <span>
