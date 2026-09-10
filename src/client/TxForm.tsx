@@ -75,7 +75,6 @@ export function TxForm({
   const [tagInput, setTagInput] = useState('');
   const [descOpen, setDescOpen] = useState(false);
   const [splits, setSplits] = useState<SplitDraft[]>([]);
-  const [showAdvanced, setShowAdvanced] = useState(false);
   const [saving, setSaving] = useState(false);
   const [err, setErr] = useState('');
   const [existingAttach, setExistingAttach] = useState<AttachmentRow[]>([]);
@@ -108,7 +107,6 @@ export function TxForm({
             occurredAt: toLocalInput(s.occurred_at || t.occurred_at),
           }))
         );
-        setShowAdvanced(true);
       })
       .catch((e) => setErr(e instanceof Error ? e.message : 'Unable to load'))
       .finally(() => setLoading(false));
@@ -381,7 +379,6 @@ export function TxForm({
       </div>
 
       <div className="details">
-        <h3>Details</h3>
         <div className="relative">
           <label>Description</label>
           <input
@@ -491,165 +488,160 @@ export function TxForm({
           </div>
         </div>
 
-        <button
-          type="button"
-          className="link toggle-adv"
-          onClick={() => setShowAdvanced(!showAdvanced)}
-        >
-          {showAdvanced
-            ? '︿ Hide split & attachments'
-            : '＋ Split into categories or add attachments'}
-        </button>
+        <div className="adv">
+          <div className="splits">
+            <div className="splitshead">
+              <h4>Split this amount</h4>
+              <button
+                type="button"
+                className="outline"
+                disabled={!splits.length}
+                onClick={() => setSplits([])}
+              >
+                Clear
+              </button>
+            </div>
+            <p className="splithint">
+              Split parts must add up to the full amount ({money(parse(amount) || 0)})
+              {splits.length > 0
+                ? ` — ${money(Math.max((parse(amount) || 0) - splitTotal, 0))} remaining`
+                : ''}
+              .
+            </p>
+            {splits.map((s, i) => (
+              <div className="splitrow" key={s.key}>
+                <span className="splitidx">{i + 1}</span>
+                <select
+                  value={s.categoryId}
+                  onChange={(e) => updateSplit(s.key, { categoryId: e.target.value })}
+                >
+                  <option value="">Category</option>
+                  {roots.map((r) => (
+                    <optgroup key={r.id} label={r.name}>
+                      <option value={r.id}>{r.name} (general)</option>
+                      {categoryChildren(cats, r.id).map((c) => (
+                        <option key={c.id} value={c.id}>
+                          {c.name}
+                        </option>
+                      ))}
+                    </optgroup>
+                  ))}
+                </select>
+                <input
+                  inputMode="decimal"
+                  className="splitamt"
+                  value={s.amount}
+                  onChange={(e) => updateSplit(s.key, { amount: e.target.value })}
+                  placeholder="0.00"
+                />
+                <input
+                  value={s.description}
+                  onChange={(e) => updateSplit(s.key, { description: e.target.value })}
+                  placeholder="Description"
+                />
+                <input
+                  type="datetime-local"
+                  className="splitdate"
+                  value={s.occurredAt}
+                  onChange={(e) => updateSplit(s.key, { occurredAt: e.target.value })}
+                  title="Date for this split part (defaults to the transaction date)"
+                />
+                <button
+                  type="button"
+                  className="splitrm"
+                  onClick={() => setSplits(splits.filter((x) => x.key !== s.key))}
+                >
+                  ×
+                </button>
+              </div>
+            ))}
+            <button
+              type="button"
+              className="link"
+              onClick={() =>
+                setSplits([
+                  ...splits,
+                  { key: uid(), categoryId: '', amount: '', description: '', occurredAt: date },
+                ])
+              }
+            >
+              ＋ Add split part
+            </button>
+            {splits.length > 0 && (
+              <div className={`splitsum${splitMismatch ? ' bad' : ' ok'}`}>
+                Total {money(splitTotal)} {hasSplits ? `/ ${money(parse(amount) || 0)}` : ''}
+                {splitMismatch && (
+                  <span className="splitwarn">
+                    ⚠ Splits must add up to the transaction amount before you can save.
+                  </span>
+                )}
+              </div>
+            )}
+          </div>
 
-        {showAdvanced && (
-          <div className="adv">
-            <div className="splits">
-              <div className="splitshead">
-                <h4>Split this amount</h4>
+          <div className="mini">
+            <h4>Attachments</h4>
+            {existingAttach.map((a) => (
+              <div className="attachrow" key={a.id}>
+                {a.kind === 'image' ? (
+                  <a href={a.url} target="_blank" rel="noreferrer" className="attachthumb">
+                    <img src={a.url} alt={a.file_name} />
+                  </a>
+                ) : (
+                  <span className="attachkind">📄</span>
+                )}
+                <a href={a.url} target="_blank" rel="noreferrer" download={a.file_name}>
+                  {a.file_name || 'Attachment'}
+                </a>
                 <button
                   type="button"
                   className="outline"
-                  disabled={!splits.length}
-                  onClick={() => setSplits([])}
+                  onClick={() =>
+                    api
+                      .deleteAttachment(a.id)
+                      .then(() => setExistingAttach((cur) => cur.filter((x) => x.id !== a.id)))
+                  }
                 >
-                  Clear
+                  Remove
                 </button>
               </div>
-              {splits.map((s, i) => (
-                <div className="splitrow" key={s.key}>
-                  <span className="splitidx">{i + 1}</span>
-                  <select
-                    value={s.categoryId}
-                    onChange={(e) => updateSplit(s.key, { categoryId: e.target.value })}
-                  >
-                    <option value="">Category</option>
-                    {roots.map((r) => (
-                      <optgroup key={r.id} label={r.name}>
-                        <option value={r.id}>{r.name} (general)</option>
-                        {categoryChildren(cats, r.id).map((c) => (
-                          <option key={c.id} value={c.id}>
-                            {c.name}
-                          </option>
-                        ))}
-                      </optgroup>
-                    ))}
-                  </select>
-                  <input
-                    inputMode="decimal"
-                    className="splitamt"
-                    value={s.amount}
-                    onChange={(e) => updateSplit(s.key, { amount: e.target.value })}
-                    placeholder="0.00"
-                  />
-                  <input
-                    value={s.description}
-                    onChange={(e) => updateSplit(s.key, { description: e.target.value })}
-                    placeholder="Description"
-                  />
-                  <input
-                    type="datetime-local"
-                    className="splitdate"
-                    value={s.occurredAt}
-                    onChange={(e) => updateSplit(s.key, { occurredAt: e.target.value })}
-                    title="Date for this split part (defaults to the transaction date)"
-                  />
-                  <button
-                    type="button"
-                    className="splitrm"
-                    onClick={() => setSplits(splits.filter((x) => x.key !== s.key))}
-                  >
-                    ×
-                  </button>
-                </div>
-              ))}
-              <button
-                type="button"
-                className="link"
-                onClick={() =>
-                  setSplits([
-                    ...splits,
-                    { key: uid(), categoryId: '', amount: '', description: '', occurredAt: date },
-                  ])
-                }
-              >
-                ＋ Add split part
-              </button>
-              {splits.length > 0 && (
-                <div className={`splitsum${splitMismatch ? ' bad' : ' ok'}`}>
-                  Total {money(splitTotal)} {hasSplits ? `/ ${money(parse(amount) || 0)}` : ''}
-                  {splitMismatch && (
-                    <span className="splitwarn">
-                      ⚠ Splits must add up to the transaction amount before you can save.
-                    </span>
-                  )}
-                </div>
-              )}
-            </div>
-
-            <div className="mini">
-              <h4>Attachments</h4>
-              {existingAttach.map((a) => (
-                <div className="attachrow" key={a.id}>
-                  {a.kind === 'image' ? (
-                    <a href={a.url} target="_blank" rel="noreferrer" className="attachthumb">
-                      <img src={a.url} alt={a.file_name} />
-                    </a>
-                  ) : (
-                    <span className="attachkind">📄</span>
-                  )}
-                  <a href={a.url} target="_blank" rel="noreferrer" download={a.file_name}>
-                    {a.file_name || 'Attachment'}
-                  </a>
-                  <button
-                    type="button"
-                    className="outline"
-                    onClick={() =>
-                      api
-                        .deleteAttachment(a.id)
-                        .then(() => setExistingAttach((cur) => cur.filter((x) => x.id !== a.id)))
-                    }
-                  >
-                    Remove
-                  </button>
-                </div>
-              ))}
-              {staged.map((s) => (
-                <div className="attachrow" key={s.key}>
-                  {s.file.type.startsWith('image/') ? (
-                    <span className="attachthumb">
-                      <img src={s.dataUrl} alt={s.file.name} />
-                    </span>
-                  ) : (
-                    <span className="attachkind">📄</span>
-                  )}
-                  <span>{s.file.name} (pending save)</span>
-                  <button
-                    type="button"
-                    className="outline"
-                    onClick={() => setStaged((cur) => cur.filter((x) => x.key !== s.key))}
-                  >
-                    Remove
-                  </button>
-                </div>
-              ))}
-              <div className="attachform">
-                <label className="outline attachpick">
-                  {attachBusy ? 'Reading…' : '＋ Add photo / file'}
-                  <input
-                    type="file"
-                    accept="image/*,application/pdf"
-                    disabled={attachBusy}
-                    onChange={(e) => {
-                      const f = e.target.files?.[0] || null;
-                      e.target.value = '';
-                      void onStageFile(f);
-                    }}
-                  />
-                </label>
+            ))}
+            {staged.map((s) => (
+              <div className="attachrow" key={s.key}>
+                {s.file.type.startsWith('image/') ? (
+                  <span className="attachthumb">
+                    <img src={s.dataUrl} alt={s.file.name} />
+                  </span>
+                ) : (
+                  <span className="attachkind">📄</span>
+                )}
+                <span>{s.file.name} (pending save)</span>
+                <button
+                  type="button"
+                  className="outline"
+                  onClick={() => setStaged((cur) => cur.filter((x) => x.key !== s.key))}
+                >
+                  Remove
+                </button>
               </div>
+            ))}
+            <div className="attachform">
+              <label className="outline attachpick">
+                {attachBusy ? 'Reading…' : '＋ Add photo / file'}
+                <input
+                  type="file"
+                  accept="image/*,application/pdf"
+                  disabled={attachBusy}
+                  onChange={(e) => {
+                    const f = e.target.files?.[0] || null;
+                    e.target.value = '';
+                    void onStageFile(f);
+                  }}
+                />
+              </label>
             </div>
           </div>
-        )}
+        </div>
       </div>
 
       <div className="statusrow">
