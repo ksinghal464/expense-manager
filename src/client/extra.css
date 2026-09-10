@@ -494,25 +494,45 @@ input[type='file'] {
 /* --- category list (manage) --- */
 .catlist {
   display: grid;
-  gap: 12px;
-}
-.catgroup {
-  display: grid;
-  gap: 8px;
-}
-.catlist .catrow {
-  display: flex;
-  align-items: center;
   gap: 10px;
-  padding: 10px 12px;
-  border: 1px solid #eef2f6;
-  border-radius: 12px;
+}
+/* One quiet box per group (root + its subcategories). Individual rows are
+   flat hairline-separated entries, not boxed items — separate cards per
+   category read as too heavy for a settings list. */
+.catgroup {
+  margin-bottom: 0;
+  border-radius: 14px;
   background: #fff;
 }
+.catlist .catrow {
+  padding: 9px 12px;
+  background: #fff;
+}
+.catlist .catrow + .catrow {
+  border-top: 1px solid #edf1f5;
+}
+.catlist .catrow.root {
+  background: #f8fafc;
+}
 .catlist .catrow.child {
-  margin-left: 18px;
-  background: #fbfcfd;
-  border-style: dashed;
+  padding-left: 20px;
+}
+/* Slightly smaller than the app default so the settings list feels calm. */
+.catlist .catrow .catinfo strong {
+  font-size: 14px;
+  font-weight: 650;
+}
+.catlist .catrow .catdot {
+  width: 32px;
+  height: 32px;
+  border-radius: 10px;
+  font-size: 13px;
+  font-weight: 650;
+}
+.catlist .catrow .catactions .outline {
+  padding: 5px 10px;
+  font-size: 13px;
+  border-radius: 9px;
 }
 /* Explicit, position-independent alignment: the info block always grows,
    the dot/branch glyphs and action buttons never do (fixes rows where the
@@ -556,9 +576,10 @@ input[type='file'] {
   text-align: center;
 }
 .catdot.small {
-  width: 28px;
-  height: 28px;
-  font-size: 13px;
+  width: 26px;
+  height: 26px;
+  border-radius: 8px;
+  font-size: 11px;
 }
 .manage-row.compact {
   padding: 9px 0;
@@ -792,15 +813,15 @@ input[type='file'] {
   border-top: 1px dashed #e5eaf0;
   margin-top: 4px;
   padding-top: 9px;
-  font-weight: 750;
+  font-weight: 600;
 }
 .framerow .amt-income {
   color: #16845a;
-  font-weight: 700;
+  font-weight: 600;
 }
 .framerow .amt-expense {
   color: #c23b47;
-  font-weight: 700;
+  font-weight: 600;
 }
 .addwidget {
   display: flex;
@@ -1053,6 +1074,13 @@ input[type='file'] {
 /* --- segmented control nested in a cardhead (no bottom margin needed) --- */
 .segmented.small {
   margin-bottom: 0;
+}
+/* The base segmented buttons are chunky (10px/14px padding, 16px text);
+   they dominate the card headers on the dashboard, so dial them down. */
+.segmented button {
+  padding: 7px 12px;
+  font-size: 13px;
+  border-radius: 10px;
 }
 
 /* --- activity filterline: keep the entries count and filter controls aligned --- */
