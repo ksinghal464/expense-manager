@@ -38,6 +38,15 @@ export async function rangeStats(
  * one account. Split transactions are broken down by each split's own
  * category rather than the parent row's category (splits only apply to
  * expenses, so income is never split).
+ *
+ * For expense breakdowns, refunds linked to an expense (via
+ * refunds_transaction_id) are netted out of the refunded expense's
+ * category/categories, so a category shows net spend (expense − refund)
+ * rather than gross expense. A refund is netted in the period/account it
+ * itself occurred in (matching rangeStats' income/refunded split), not the
+ * period of the original expense. Refunds on split expenses are prorated
+ * across the parent's splits proportionally to each split's share of the
+ * parent amount.
  */
 export async function categoryBreakdown(
   env: Env,
@@ -70,14 +79,126 @@ export async function categoryBreakdown(
   )
     .bind(...paramsA, ...paramsB)
     .all<Row>();
-  return r.results.map((row) => ({ id: row.id ?? null, name: row.name, total: row.total }));
+
+  const totals = new Map<string, { id: string | null; name: string; total: number }>();
+  for (const row of r.results) {
+    totals.set(String(row.id ?? ''), { id: row.id ?? null, name: row.name, total: row.total });
+  }
+
+  if (type === 'expense') {
+    await applyRefundAdjustments(env, from, to, opts.accountId ?? null, totals);
+  }
+
+  return [...totals.values()].sort((a, b) => b.total - a.total);
+}
+
+/**
+ * Subtracts refunds (income transactions with refunds_transaction_id set)
+ * from the category bucket(s) of the expense they refund, mutating `totals`
+ * in place. A refund is counted in the period/account it itself occurred in.
+ * Refunds on split expenses are prorated across the parent's splits
+ * proportionally to each split's share of the parent amount, with the last
+ * split absorbing any rounding remainder so the parts still sum exactly.
+ */
+async function applyRefundAdjustments(
+  env: Env,
+  from: string,
+  to: string | null,
+  accountId: string | null,
+  totals: Map<string, { id: string | null; name: string; total: number }>
+): Promise<void> {
+  const clauses = [
+    'r.deleted_at IS NULL',
+    "r.transaction_type='income'",
+    'r.refunds_transaction_id IS NOT NULL',
+    't.deleted_at IS NULL',
+    'r.occurred_at >= ?',
+  ];
+  const params: unknown[] = [from];
+  if (to) {
+    clauses.push('r.occurred_at < ?');
+    params.push(to);
+  }
+  if (accountId) {
+    clauses.push('r.account_id = ?');
+    params.push(accountId);
+  }
+  const refunds = await env.DB.prepare(
+    `SELECT r.amount_minor AS refund_amount, t.id AS parent_id, t.category_id AS parent_category_id,
+       t.amount_minor AS parent_amount, t.is_split_parent AS parent_is_split
+     FROM transactions r JOIN transactions t ON t.id = r.refunds_transaction_id
+     WHERE ${clauses.join(' AND ')}`
+  )
+    .bind(...params)
+    .all<Row>();
+  if (!refunds.results.length) return;
+
+  const splitParentIds = [
+    ...new Set(
+      refunds.results.filter((row) => row.parent_is_split).map((row) => String(row.parent_id))
+    ),
+  ];
+  const splitsByParent = new Map<
+    string,
+    { category_id: string | null; name: string; amount_minor: number }[]
+  >();
+  if (splitParentIds.length) {
+    const placeholders = splitParentIds.map(() => '?').join(',');
+    const splitRows = await env.DB.prepare(
+      `SELECT s.transaction_id AS parent_id, s.category_id, COALESCE(c.name, 'Uncategorized') AS name, s.amount_minor
+       FROM transaction_splits s LEFT JOIN categories c ON c.id = s.category_id
+       WHERE s.deleted_at IS NULL AND s.transaction_id IN (${placeholders})`
+    )
+      .bind(...splitParentIds)
+      .all<Row>();
+    for (const row of splitRows.results) {
+      const key = String(row.parent_id);
+      if (!splitsByParent.has(key)) splitsByParent.set(key, []);
+      splitsByParent.get(key)!.push({
+        category_id: row.category_id ?? null,
+        name: row.name,
+        amount_minor: row.amount_minor,
+      });
+    }
+  }
+
+  const subtract = (id: string | null, name: string, amount: number) => {
+    if (!amount) return;
+    const key = String(id ?? '');
+    const existing = totals.get(key);
+    if (existing) existing.total -= amount;
+    else totals.set(key, { id, name, total: -amount });
+  };
+
+  for (const row of refunds.results) {
+    const refundAmount: number = row.refund_amount;
+    if (!row.parent_is_split) {
+      subtract(row.parent_category_id ?? null, 'Uncategorized', refundAmount);
+      continue;
+    }
+    const splits = splitsByParent.get(String(row.parent_id)) || [];
+    const parentAmount: number = row.parent_amount || 1;
+    if (!splits.length) continue;
+    let allocated = 0;
+    splits.forEach((s, i) => {
+      const share =
+        i === splits.length - 1
+          ? refundAmount - allocated
+          : Math.round((refundAmount * s.amount_minor) / parentAmount);
+      allocated += share;
+      subtract(s.category_id, s.name, share);
+    });
+  }
 }
 
 /**
  * Payment-method or payee breakdown (expense or income) for [from, to),
  * optionally scoped to one account. Unlike categories, methods/payees are
  * plain transaction-level attributes (splits don't carry their own), so a
- * single grouped query is enough.
+ * single grouped query is enough. For expense breakdowns, refunds are
+ * netted out of the refunded expense's own method/payee bucket (see
+ * categoryBreakdown for the period/account semantics of when a refund is
+ * counted).
  */
 export async function entityBreakdown(
   env: Env,
@@ -109,7 +230,49 @@ export async function entityBreakdown(
   )
     .bind(...params)
     .all<Row>();
-  return r.results.map((row) => ({ id: row.id ?? null, name: row.name, total: row.total }));
+
+  const totals = new Map<string, { id: string | null; name: string; total: number }>();
+  for (const row of r.results) {
+    totals.set(String(row.id ?? ''), { id: row.id ?? null, name: row.name, total: row.total });
+  }
+
+  if (type === 'expense') {
+    const idColParent = dimension === 'method' ? 't.payment_method_id' : 't.payee_id';
+    const clauses2 = [
+      'r.deleted_at IS NULL',
+      "r.transaction_type='income'",
+      'r.refunds_transaction_id IS NOT NULL',
+      't.deleted_at IS NULL',
+      'r.occurred_at >= ?',
+    ];
+    const params2: unknown[] = [from];
+    if (to) {
+      clauses2.push('r.occurred_at < ?');
+      params2.push(to);
+    }
+    if (opts.accountId) {
+      clauses2.push('r.account_id = ?');
+      params2.push(opts.accountId);
+    }
+    const refunds = await env.DB.prepare(
+      `SELECT r.amount_minor AS refund_amount, ${idColParent} AS id,
+         COALESCE(${joinAlias}.name, '${fallbackName}') AS name
+       FROM transactions r
+       JOIN transactions t ON t.id = r.refunds_transaction_id
+       LEFT JOIN ${joinTable} ${joinAlias} ON ${joinAlias}.id = ${idColParent}
+       WHERE ${clauses2.join(' AND ')}`
+    )
+      .bind(...params2)
+      .all<Row>();
+    for (const row of refunds.results) {
+      const key = String(row.id ?? '');
+      const existing = totals.get(key);
+      if (existing) existing.total -= row.refund_amount;
+      else totals.set(key, { id: row.id ?? null, name: row.name, total: -row.refund_amount });
+    }
+  }
+
+  return [...totals.values()].sort((a, b) => b.total - a.total);
 }
 
 // The dashboard's default (bootstrap) frames are just today/week/month/YTD —
