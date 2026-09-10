@@ -525,6 +525,27 @@ input[type='file'] {
   flex: 1 1 auto;
   min-width: 0;
 }
+.catlist .catrow.root .catinfo {
+  cursor: pointer;
+}
+.catcollapse {
+  flex: none !important;
+  width: 24px;
+  height: 24px;
+  border: 0;
+  background: none;
+  color: #7b8797;
+  font-size: 15px;
+  display: grid;
+  place-items: center;
+  border-radius: 8px;
+}
+.catcollapse:hover {
+  background: #eef2f6;
+}
+.catcollapse.hidden {
+  visibility: hidden;
+}
 .catlist .catrow .catinfo strong,
 .catlist .catrow .catinfo span {
   display: block;

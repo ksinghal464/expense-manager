@@ -179,10 +179,19 @@ function CategoriesTab() {
   const [kind, setKind] = useState<'all' | 'expense' | 'income'>('all');
   const [editing, setEditing] = useState<Category | null>(null);
   const [creating, setCreating] = useState(false);
+  const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
 
   const shown = categories.filter((c) => kind === 'all' || c.kind === kind || c.kind === 'both');
   const roots = categoryRoots(shown);
   const topOptions = categoryRoots(categories).map((c) => ({ value: c.id, label: c.name }));
+
+  const toggle = (id: string) =>
+    setCollapsed((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
 
   return (
     <section className="card manager">
@@ -204,15 +213,25 @@ function CategoriesTab() {
       <div className="catlist">
         {roots.map((r) => {
           const children = categoryChildren(shown, r.id);
+          const isCollapsed = collapsed.has(r.id);
           const kindLabel =
             r.kind === 'both' ? 'Expense + Income' : r.kind === 'income' ? 'Income' : 'Expense';
           return (
             <div className="catgroup" key={r.id}>
               <div className="catrow root">
+                <button
+                  className={`catcollapse${children.length ? '' : ' hidden'}`}
+                  onClick={() => toggle(r.id)}
+                  disabled={!children.length}
+                  aria-label={isCollapsed ? 'Expand subcategories' : 'Collapse subcategories'}
+                  aria-expanded={!isCollapsed}
+                >
+                  {isCollapsed ? '›' : '⌄'}
+                </button>
                 <div className="catdot">
                   {r.kind === 'income' ? '↗' : r.kind === 'expense' ? '↘' : '↕'}
                 </div>
-                <div className="catinfo">
+                <div className="catinfo" onClick={() => children.length && toggle(r.id)}>
                   <strong>{r.name}</strong>
                   <span>
                     {kindLabel} · {children.length} subcategor{children.length === 1 ? 'y' : 'ies'}
@@ -233,38 +252,39 @@ function CategoriesTab() {
                   />
                 </div>
               </div>
-              {children.map((c) => (
-                <div className="catrow child" key={c.id}>
-                  <div className="branch">↳</div>
-                  <div className="catdot small">
-                    {c.kind === 'income' ? '↗' : c.kind === 'expense' ? '↘' : '↕'}
+              {!isCollapsed &&
+                children.map((c) => (
+                  <div className="catrow child" key={c.id}>
+                    <div className="branch">↳</div>
+                    <div className="catdot small">
+                      {c.kind === 'income' ? '↗' : c.kind === 'expense' ? '↘' : '↕'}
+                    </div>
+                    <div className="catinfo">
+                      <strong>{c.name}</strong>
+                      <span>
+                        {c.kind === 'both'
+                          ? 'Expense + Income'
+                          : c.kind === 'income'
+                            ? 'Income'
+                            : 'Expense'}
+                      </span>
+                    </div>
+                    <div className="catactions">
+                      <button className="outline" onClick={() => setEditing(c)}>
+                        Edit
+                      </button>
+                      <DelBtn
+                        name={c.name}
+                        kind="category"
+                        onDel={async () => {
+                          await api.deleteCategory(c.id);
+                          refresh();
+                          toast('Category deleted');
+                        }}
+                      />
+                    </div>
                   </div>
-                  <div className="catinfo">
-                    <strong>{c.name}</strong>
-                    <span>
-                      {c.kind === 'both'
-                        ? 'Expense + Income'
-                        : c.kind === 'income'
-                          ? 'Income'
-                          : 'Expense'}
-                    </span>
-                  </div>
-                  <div className="catactions">
-                    <button className="outline" onClick={() => setEditing(c)}>
-                      Edit
-                    </button>
-                    <DelBtn
-                      name={c.name}
-                      kind="category"
-                      onDel={async () => {
-                        await api.deleteCategory(c.id);
-                        refresh();
-                        toast('Category deleted');
-                      }}
-                    />
-                  </div>
-                </div>
-              ))}
+                ))}
             </div>
           );
         })}
