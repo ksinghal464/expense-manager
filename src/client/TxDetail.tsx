@@ -1,7 +1,14 @@
 import { useCallback, useEffect, useState } from 'react';
 import { api, TxDetail as TxT, AttachmentRow } from './api';
 import { useStore } from './store';
-import { money, signedMoney, fmtDateTime, readFileAsDataUrl, MAX_ATTACHMENT_BYTES } from './lib';
+import {
+  money,
+  signedMoney,
+  fmtDateTime,
+  readFileAsDataUrl,
+  MAX_ATTACHMENT_BYTES,
+  categoryDisplayName,
+} from './lib';
 import { Empty, Err, ConfirmDialog } from './ui';
 import { AuditBody } from './auditFormat';
 import type { AuditEntry } from '../shared/types';
@@ -77,7 +84,10 @@ export function TxDetail({
         <Detail label="Date & time" value={fmtDateTime(tx.occurred_at)} />
         <Detail label="Account" value={tx.account_name} />
         <Detail label="Payment method" value={tx.payment_method_name || '—'} />
-        <Detail label="Category" value={tx.category_name || 'Uncategorized'} />
+        <Detail
+          label="Category"
+          value={categoryDisplayName(categories, tx.category_id, tx.category_name)}
+        />
         <Detail label="Payee / payer" value={tx.payee_name || '—'} />
         <Detail label="Description" value={tx.description || '—'} />
         <Detail label="Note" value={tx.note || '—'} />
@@ -99,7 +109,7 @@ export function TxDetail({
           {tx.splits.map((s) => (
             <div className="splitview" key={s.id}>
               <span>
-                {s.category_name || 'Uncategorized'}
+                {categoryDisplayName(categories, s.category_id, s.category_name)}
                 {s.description ? ` · ${s.description}` : ''}
                 {s.occurred_at && s.occurred_at !== tx.occurred_at
                   ? ` · ${fmtDateTime(s.occurred_at)}`

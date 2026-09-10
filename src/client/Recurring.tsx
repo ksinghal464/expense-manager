@@ -3,7 +3,14 @@ import { api } from './api';
 import { useStore } from './store';
 import { money, fmtDateTime, toInput, dtLocalNow, toIso, avatarLetter } from './lib';
 import { Empty, Err, Field, SaveButton, Segmented, ConfirmDialog, CategoryPicker } from './ui';
-import type { RecurringRule, TxType, Account, PaymentMethod, Category, Payee } from '../shared/types';
+import type {
+  RecurringRule,
+  TxType,
+  Account,
+  PaymentMethod,
+  Category,
+  Payee,
+} from '../shared/types';
 
 type Freq = RecurringRule['frequency'];
 
@@ -165,9 +172,7 @@ function RuleForm({
   const [accountId, setAccountId] = useState(rule?.account_id || '');
   const [methodId, setMethodId] = useState(rule?.payment_method_id || '');
   const [categoryId, setCategoryId] = useState(rule?.category_id || '');
-  const [payee, setPayee] = useState(
-    () => payees.find((p) => p.id === rule?.payee_id)?.name || ''
-  );
+  const [payee, setPayee] = useState(() => payees.find((p) => p.id === rule?.payee_id)?.name || '');
   const [amount, setAmount] = useState(rule ? toInput(rule.amount_minor) : '');
   const [frequency, setFrequency] = useState<Freq>(rule?.frequency || 'monthly');
   const [interval, setInterval] = useState(String(rule?.interval_value || 1));

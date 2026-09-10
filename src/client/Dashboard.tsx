@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { useStore } from './store';
 import type { ActivityFilter } from './store';
 import { api } from './api';
-import { money } from './lib';
+import { money, categoryDisplayName } from './lib';
 import { Empty } from './ui';
 import { TxRow } from './TxRow';
 import { periodStart, PERIOD_PRESETS } from '../shared/period';
@@ -18,7 +18,6 @@ type FrameData = {
 };
 
 type CustomWidget = { key: string; label: string; from: string; to: string | null };
-
 
 function todayInputValue(): string {
   const d = new Date();
@@ -268,7 +267,7 @@ async function mergeBalance(
 }
 
 export function Dashboard() {
-  const { dash, accounts, transactions, go, open, openActivity } = useStore();
+  const { dash, accounts, categories, transactions, go, open, openActivity } = useStore();
   const persisted = useMemo(() => loadPersisted(), []);
 
   // ---- account scope: everything below reacts to this ----
@@ -492,7 +491,13 @@ export function Dashboard() {
         emptyNoun="category"
         accountFilter={accountFilter}
         accountLabel={accountLabel}
-        fetcher={(from, to, acct, type) => api.dashboardCategories(from, to, acct, type)}
+        fetcher={async (from, to, acct, type) => {
+          const rows = await api.dashboardCategories(from, to, acct, type);
+          // Show subcategories as "Parent › Child" — plain subcategory names
+          // are easy to confuse with an unrelated top-level category (or
+          // another subcategory) of the same/similar name.
+          return rows.map((c) => ({ ...c, name: categoryDisplayName(categories, c.id, c.name) }));
+        }}
         buildFilter={(c, from, to, type) => ({
           categoryId: c.id,
           type,
@@ -549,6 +554,7 @@ export function Dashboard() {
           <TxRow
             key={t.id}
             t={t}
+            categories={categories}
             onClick={() => open({ kind: 'detail', id: t.id })}
             onOpenRef={(refId) => open({ kind: 'detail', id: refId })}
           />

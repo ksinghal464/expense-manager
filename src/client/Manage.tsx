@@ -179,14 +179,17 @@ function CategoriesTab() {
   const [kind, setKind] = useState<'all' | 'expense' | 'income'>('all');
   const [editing, setEditing] = useState<Category | null>(null);
   const [creating, setCreating] = useState(false);
-  const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
+  // Which root groups have been explicitly expanded — absence from this set
+  // means collapsed, so the category list starts fully collapsed (easier to
+  // scan a long list) rather than needing to be closed group by group.
+  const [expanded, setExpanded] = useState<Set<string>>(new Set());
 
   const shown = categories.filter((c) => kind === 'all' || c.kind === kind || c.kind === 'both');
   const roots = categoryRoots(shown);
   const topOptions = categoryRoots(categories).map((c) => ({ value: c.id, label: c.name }));
 
   const toggle = (id: string) =>
-    setCollapsed((prev) => {
+    setExpanded((prev) => {
       const next = new Set(prev);
       if (next.has(id)) next.delete(id);
       else next.add(id);
@@ -213,7 +216,7 @@ function CategoriesTab() {
       <div className="catlist">
         {roots.map((r) => {
           const children = categoryChildren(shown, r.id);
-          const isCollapsed = collapsed.has(r.id);
+          const isCollapsed = !expanded.has(r.id);
           const kindLabel =
             r.kind === 'both' ? 'Expense + Income' : r.kind === 'income' ? 'Income' : 'Expense';
           return (
@@ -566,7 +569,7 @@ function DataTab() {
 
 // ---------------- Trash ----------------
 function TrashTab() {
-  const { open, refresh, toast } = useStore();
+  const { open, categories, refresh, toast } = useStore();
   const [items, setItems] = useState<TxView[]>([]);
   const [confirming, setConfirming] = useState(false);
 
@@ -614,6 +617,7 @@ function TrashTab() {
         <TxRow
           key={t.id}
           t={t}
+          categories={categories}
           onClick={() => open({ kind: 'detail', id: t.id, fromTrash: true })}
         />
       ))}

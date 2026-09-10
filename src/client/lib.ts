@@ -124,3 +124,25 @@ export function categoryRoots(categories: Category[]): Category[] {
 export function categoryChildren(categories: Category[], rootId: string): Category[] {
   return categories.filter((c) => c.parent_id === rootId);
 }
+
+/**
+ * Display name for a category, prefixed with its parent's name
+ * ("Parent › Child") when it's a subcategory. A subcategory's own name
+ * alone is often ambiguous or hard to distinguish from an unrelated
+ * top-level category with a similar/identical name (e.g. two different
+ * "Other" subcategories under different parents), so anywhere a single
+ * category name is shown flat (not already visually grouped under its
+ * parent, like Manage's indented category list) should use this instead of
+ * the bare name.
+ */
+export function categoryDisplayName(
+  categories: Category[],
+  categoryId: string | null | undefined,
+  fallbackName?: string | null
+): string {
+  const c = categoryId ? categories.find((x) => x.id === categoryId) : null;
+  if (!c) return fallbackName || 'Uncategorized';
+  if (!c.parent_id) return c.name;
+  const parent = categories.find((x) => x.id === c.parent_id);
+  return parent ? `${parent.name} › ${c.name}` : c.name;
+}

@@ -1,5 +1,5 @@
 import { money } from './lib';
-import { fmtDateTime, parseJson } from './lib';
+import { fmtDateTime, parseJson, categoryDisplayName } from './lib';
 import type { Account, Category, Payee, PaymentMethod } from '../shared/types';
 
 /** Friendly labels for raw DB field names shown in audit entries. */
@@ -77,11 +77,7 @@ function formatSplits(value: unknown, l: Lookups): string {
   if (!Array.isArray(value) || !value.length) return 'No splits (single category)';
   return value
     .map((s) => {
-      const catName = s?.category_id
-        ? l.categories.find((c) => c.id === s.category_id)?.name ||
-          s.category_name ||
-          'Uncategorized'
-        : 'Uncategorized';
+      const catName = categoryDisplayName(l.categories, s?.category_id, s?.category_name);
       const amt = money(Number(s?.amount_minor) || 0);
       const desc = s?.description ? ` (${s.description})` : '';
       return `${catName} ${amt}${desc}`;
@@ -95,7 +91,7 @@ function resolveRef(
   l: Lookups
 ): string | null {
   if (kind === 'account') return l.accounts.find((a) => a.id === id)?.name ?? null;
-  if (kind === 'category') return l.categories.find((c) => c.id === id)?.name ?? null;
+  if (kind === 'category') return categoryDisplayName(l.categories, id) || null;
   if (kind === 'method') return l.methods.find((m) => m.id === id)?.name ?? null;
   if (kind === 'payee') return l.payees.find((p) => p.id === id)?.name ?? null;
   return null;

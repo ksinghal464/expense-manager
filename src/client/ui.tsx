@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import type { Category } from '../shared/types';
-import { categoryRoots } from './lib';
+import { categoryRoots, categoryDisplayName } from './lib';
 
 export function Overlay({
   children,
@@ -101,10 +101,7 @@ export function CategoryPicker({
   const selectedLabel = useMemo(() => {
     if (!value) return '';
     const c = categories.find((x) => x.id === value);
-    if (!c) return '';
-    if (!c.parent_id) return c.name;
-    const parent = categories.find((x) => x.id === c.parent_id);
-    return parent ? `${parent.name} › ${c.name}` : c.name;
+    return c ? categoryDisplayName(categories, value) : '';
   }, [value, categories]);
 
   const q = query.trim().toLowerCase();

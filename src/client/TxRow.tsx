@@ -1,14 +1,16 @@
-import { signedMoney, fmtDateTime, money, avatarLetter } from './lib';
-import type { TxView } from '../shared/types';
+import { signedMoney, fmtDateTime, money, avatarLetter, categoryDisplayName } from './lib';
+import type { TxView, Category } from '../shared/types';
 
 export function TxRow({
   t,
+  categories,
   onClick,
   onOpenRef,
   balance,
   balanceLabel,
 }: {
   t: TxView;
+  categories: Category[];
   onClick: () => void;
   onOpenRef?: (id: string) => void;
   balance?: number;
@@ -17,15 +19,14 @@ export function TxRow({
   const isIncome = t.transaction_type === 'income';
   const isRefund = !!t.refunds_transaction_id;
   const hasRefunds = !isRefund && (t.refunded_minor || 0) > 0;
+  const categoryLabel = categoryDisplayName(categories, t.category_id, t.category_name);
   return (
     <button className={`tx${isRefund ? ' refund' : ''}`} onClick={onClick}>
-      <div className="avatar">
-        {avatarLetter(t.description, t.payee_name, t.category_name)}
-      </div>
+      <div className="avatar">{avatarLetter(t.description, t.payee_name, t.category_name)}</div>
       <div className="txmain">
         <strong>{t.description || t.payee_name || ''}</strong>
         <span>
-          {t.category_name || 'Uncategorized'}
+          {categoryLabel}
           {t.payee_name ? ` · ${t.payee_name}` : ''}
           {t.is_split_parent ? ' · Split' : ''}
         </span>

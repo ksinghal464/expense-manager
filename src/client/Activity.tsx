@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { useStore } from './store';
 import { api } from './api';
 import type { SearchOptions } from './api';
-import { useDebounce, categoryRoots, categoryChildren, money } from './lib';
+import { useDebounce, categoryRoots, categoryChildren, categoryDisplayName, money } from './lib';
 import { Empty } from './ui';
 import { TxRow } from './TxRow';
 import {
@@ -223,14 +223,44 @@ export function Activity() {
   // category, payment method, and payee all existing at once — are still
   // easy to tell apart in the popup instead of showing three unlabeled
   // "Other" buttons in a row.
-  const groups: [string, string, string[]][] = options
+  //
+  // Subcategories are additionally shown as "Parent › Child" (categories.ts
+  // has no unique-name guarantee across parents, and even when unique it's
+  // still hard to tell a subcategory apart from an unrelated top-level one
+  // with a similar name at a glance). Only the display text gets the
+  // parent prefix — `value` stays just the category's own name, since
+  // that's what actually gets matched against transactions' category_name.
+  const groups: [string, string, { display: string; value: string }[]][] = options
     ? [
-        ['Descriptions', 'Description', (options.descriptions || []).map((x) => x.value)],
-        ['Categories', 'Category', (options.categories || []).map((x) => x.name)],
-        ['Payment methods', 'Method', (options.methods || []).map((x) => x.name)],
-        ['Accounts', 'Account', (options.accounts || []).map((x) => x.name)],
-        ['Payees', 'Payee', (options.payees || []).map((x) => x.name)],
-        ['Tags', 'Tag', (options.tags || []).map((x) => x.name)],
+        [
+          'Descriptions',
+          'Description',
+          (options.descriptions || []).map((x) => ({ display: x.value, value: x.value })),
+        ],
+        [
+          'Categories',
+          'Category',
+          (options.categories || []).map((x) => ({
+            display: categoryDisplayName(categories, x.id, x.name),
+            value: x.name,
+          })),
+        ],
+        [
+          'Payment methods',
+          'Method',
+          (options.methods || []).map((x) => ({ display: x.name, value: x.name })),
+        ],
+        [
+          'Accounts',
+          'Account',
+          (options.accounts || []).map((x) => ({ display: x.name, value: x.name })),
+        ],
+        [
+          'Payees',
+          'Payee',
+          (options.payees || []).map((x) => ({ display: x.name, value: x.name })),
+        ],
+        ['Tags', 'Tag', (options.tags || []).map((x) => ({ display: x.name, value: x.name }))],
       ]
     : [];
 
@@ -292,9 +322,9 @@ export function Activity() {
               vals.length ? (
                 <div key={label}>
                   <label>{label}</label>
-                  {vals.slice(0, 8).map((v) => (
+                  {vals.slice(0, 8).map(({ display, value: v }) => (
                     <button
-                      key={v}
+                      key={display}
                       onClick={() => {
                         const terms = query
                           .split(/\s+/)
@@ -317,7 +347,7 @@ export function Activity() {
                         setPopupOpen(false);
                       }}
                     >
-                      {v}
+                      {display}
                       <span>{tag}</span>
                     </button>
                   ))}
@@ -416,7 +446,7 @@ export function Activity() {
                     <option value={r.id}>{r.name}</option>
                     {categoryChildren(categories, r.id).map((c) => (
                       <option key={c.id} value={c.id}>
-                        {c.name}
+                        {r.name} › {c.name}
                       </option>
                     ))}
                   </optgroup>
@@ -490,6 +520,7 @@ export function Activity() {
           <TxRow
             key={t.id}
             t={t}
+            categories={categories}
             balance={balanceById[t.id]}
             balanceLabel={narrowsWithinAccount ? 'Net' : 'Bal'}
             onClick={() => open({ kind: 'detail', id: t.id })}
