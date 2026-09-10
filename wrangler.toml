@@ -6,6 +6,11 @@ compatibility_date = "2026-09-08"
 directory = "./dist"
 not_found_handling = "single-page-application"
 
+# The app has authenticated API routes and OAuth redirects. Do not let the
+# Workers Cache serve a stale SPA response for an /api/* request.
+[cache]
+enabled = false
+
 [[d1_databases]]
 binding = "DB"
 database_name = "expense-manager"
