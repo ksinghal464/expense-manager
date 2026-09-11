@@ -16,15 +16,7 @@ import {
   categoryChildren,
 } from './lib';
 import { Field, SaveButton, Err, CategoryPicker } from './ui';
-import type {
-  Category,
-  PaymentMethod,
-  Account,
-  Payee,
-  TxType,
-  TxStatus,
-  SplitRow,
-} from '../shared/types';
+import type { Category, PaymentMethod, Account, Payee, TxStatus, SplitRow } from '../shared/types';
 
 type SplitDraft = {
   key: string;
@@ -34,6 +26,11 @@ type SplitDraft = {
   occurredAt: string;
 };
 type StagedFile = { key: string; file: File; dataUrl: string };
+// The form's own type choice is a superset of the persisted TxType: a
+// "transfer" isn't a transaction_type value at all — it's two linked
+// transaction rows (see createTransfer/updateTransfer in routes.ts) — so it
+// gets its own local union here instead of reusing TxType directly.
+type FormType = 'expense' | 'income' | 'transfer';
 
 // The split-into-multiple-categories editor is hidden for now (it was causing
 // user confusion) but left in place — flip this back to `true` to re-enable
@@ -65,8 +62,10 @@ export function TxForm({
   } = useStore();
 
   const [loading, setLoading] = useState(!!id);
-  const [type, setType] = useState<TxType>('expense');
+  const [type, setType] = useState<FormType>('expense');
   const [accountId, setAccountId] = useState('');
+  const [toAccountId, setToAccountId] = useState('');
+  const [transferId, setTransferId] = useState<string | null>(null);
   const [categoryId, setCategoryId] = useState('');
   const [methodId, setMethodId] = useState('');
   const [amount, setAmount] = useState('');
@@ -91,13 +90,34 @@ export function TxForm({
     api
       .transaction(id)
       .then((t: TxDetail) => {
-        setType(t.transaction_type);
-        setAccountId(t.account_id);
+        if (t.transfer_id) {
+          // A transfer-linked leg: switch the form into transfer mode and
+          // derive the from/to accounts from which side of the transfer
+          // this particular leg is (see PUT /api/transfers/:id — accounts
+          // aren't editable after creation, only amount/date/description/note).
+          setType('transfer');
+          setTransferId(t.transfer_id);
+          if (t.transaction_type === 'expense') {
+            setAccountId(t.account_id);
+            setToAccountId(t.transfer_counterpart_account_id || '');
+          } else {
+            setAccountId(t.transfer_counterpart_account_id || '');
+            setToAccountId(t.account_id);
+          }
+        } else {
+          setType(t.transaction_type);
+          setAccountId(t.account_id);
+        }
         setCategoryId(t.category_id || '');
         setMethodId(t.payment_method_id || '');
         setAmount(toInput(t.amount_minor));
         setDate(toLocalInput(t.occurred_at));
-        setDescription(t.description);
+        // A transfer leg's own `description` is auto-generated per direction
+        // ("Transfer to X" / "Transfer from Y") for display — the editable
+        // field must instead reflect the transfer's raw custom description
+        // (blank unless the user set one), or re-saving would "freeze" one
+        // leg's auto-text onto both legs.
+        setDescription(t.transfer_id ? t.transfer_description || '' : t.description);
         setNote(t.note);
         setPayee(t.payee_name || '');
         setStatus(t.status);
@@ -152,7 +172,8 @@ export function TxForm({
   }, [accountId, accountMethods]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const cats = useMemo(
-    () => categories.filter((c) => c.kind === 'both' || c.kind === type),
+    () =>
+      type === 'transfer' ? [] : categories.filter((c) => c.kind === 'both' || c.kind === type),
     [categories, type]
   );
   useEffect(() => {
@@ -160,7 +181,10 @@ export function TxForm({
   }, [type]); // eslint-disable-line react-hooks/exhaustive-deps
   const roots = categoryRoots(cats);
   const expenses = useMemo(
-    () => transactions.filter((t) => t.transaction_type === 'expense'),
+    // A transfer's outgoing leg is transaction_type='expense' too, but it
+    // isn't a real expense — exclude it so it can't be picked as a refund
+    // target (refunding a transfer doesn't make sense).
+    () => transactions.filter((t) => t.transaction_type === 'expense' && !t.transfer_id),
     [transactions]
   );
 
@@ -191,6 +215,28 @@ export function TxForm({
     try {
       const minor = parse(amount);
       if (!minor || minor <= 0) throw new Error('Enter a valid amount.');
+
+      if (type === 'transfer') {
+        if (!accountId) throw new Error('Select a from account.');
+        if (!toAccountId) throw new Error('Select a to account.');
+        if (accountId === toAccountId) throw new Error('From and to accounts must be different.');
+        const transferPayload = {
+          fromAccountId: accountId,
+          toAccountId,
+          amount: minor / 100,
+          occurredAt: toIso(date),
+          description,
+          note,
+          status,
+        };
+        if (transferId) await api.updateTransfer(transferId, transferPayload);
+        else await api.createTransfer(transferPayload);
+        toast(transferId ? 'Transfer updated' : 'Transfer saved');
+        close();
+        refresh();
+        return;
+      }
+
       if (!accountId) throw new Error('Select an account.');
       if (!methodId) throw new Error('Select a payment method (add one in Manage if none exist).');
       if (!categoryId) throw new Error('Select a category.');
@@ -300,6 +346,7 @@ export function TxForm({
         <button
           type="button"
           className={type === 'expense' ? 'chosen' : ''}
+          disabled={!!transferId}
           onClick={() => setType('expense')}
         >
           − <b>Expense</b>
@@ -308,10 +355,21 @@ export function TxForm({
         <button
           type="button"
           className={type === 'income' ? 'chosen incomechoice' : ''}
+          disabled={!!transferId}
           onClick={() => setType('income')}
         >
           ＋ <b>Income</b>
           <span>Money coming in</span>
+        </button>
+        <button
+          type="button"
+          className={type === 'transfer' ? 'chosen transferchoice' : ''}
+          disabled={(!!id && !transferId) || accounts.length < 2}
+          title={accounts.length < 2 ? 'Add a second account to transfer between accounts' : ''}
+          onClick={() => setType('transfer')}
+        >
+          ⇄ <b>Transfer</b>
+          <span>Between your accounts</span>
         </button>
       </div>
 
@@ -329,59 +387,105 @@ export function TxForm({
         </div>
       </label>
 
-      <div className="formgrid">
-        <Field label="Date & time">
-          <input type="datetime-local" value={date} onChange={(e) => setDate(e.target.value)} />
-        </Field>
-        <Field label="Account *">
-          <select required value={accountId} onChange={(e) => setAccountId(e.target.value)}>
-            <option value="" disabled>
-              Select account
-            </option>
-            {accounts.map((a: Account) => (
-              <option key={a.id} value={a.id}>
-                {a.name}
+      {type === 'transfer' ? (
+        <div className="formgrid">
+          <Field label="Date & time">
+            <input type="datetime-local" value={date} onChange={(e) => setDate(e.target.value)} />
+          </Field>
+          <Field label="From account *">
+            <select
+              required
+              disabled={!!transferId}
+              value={accountId}
+              onChange={(e) => setAccountId(e.target.value)}
+            >
+              <option value="" disabled>
+                Select account
               </option>
-            ))}
-          </select>
-        </Field>
-        <Field label="Payment method *">
-          <select required value={methodId} onChange={(e) => setMethodId(e.target.value)}>
-            <option value="" disabled>
-              {!accountId
-                ? 'Select an account first'
-                : accountMethods.length
-                  ? 'Select payment method'
-                  : 'No methods — add one in Manage'}
-            </option>
-            {accountMethods.map((m: PaymentMethod) => (
-              <option key={m.id} value={m.id}>
-                {m.name}
+              {accounts
+                .filter((a) => a.id !== toAccountId)
+                .map((a: Account) => (
+                  <option key={a.id} value={a.id}>
+                    {a.name}
+                  </option>
+                ))}
+            </select>
+          </Field>
+          <Field label="To account *">
+            <select
+              required
+              disabled={!!transferId}
+              value={toAccountId}
+              onChange={(e) => setToAccountId(e.target.value)}
+            >
+              <option value="" disabled>
+                Select account
               </option>
-            ))}
-          </select>
-        </Field>
-        <CategoryPicker
-          label="Category"
-          required
-          categories={cats}
-          value={categoryId}
-          onChange={setCategoryId}
-        />
-        <Field label="Payee / payer">
-          <input
-            value={payee}
-            onChange={(e) => setPayee(e.target.value)}
-            list="payees"
-            placeholder="Who was this with?"
+              {accounts
+                .filter((a) => a.id !== accountId)
+                .map((a: Account) => (
+                  <option key={a.id} value={a.id}>
+                    {a.name}
+                  </option>
+                ))}
+            </select>
+          </Field>
+        </div>
+      ) : (
+        <div className="formgrid">
+          <Field label="Date & time">
+            <input type="datetime-local" value={date} onChange={(e) => setDate(e.target.value)} />
+          </Field>
+          <Field label="Account *">
+            <select required value={accountId} onChange={(e) => setAccountId(e.target.value)}>
+              <option value="" disabled>
+                Select account
+              </option>
+              {accounts.map((a: Account) => (
+                <option key={a.id} value={a.id}>
+                  {a.name}
+                </option>
+              ))}
+            </select>
+          </Field>
+          <Field label="Payment method *">
+            <select required value={methodId} onChange={(e) => setMethodId(e.target.value)}>
+              <option value="" disabled>
+                {!accountId
+                  ? 'Select an account first'
+                  : accountMethods.length
+                    ? 'Select payment method'
+                    : 'No methods — add one in Manage'}
+              </option>
+              {accountMethods.map((m: PaymentMethod) => (
+                <option key={m.id} value={m.id}>
+                  {m.name}
+                </option>
+              ))}
+            </select>
+          </Field>
+          <CategoryPicker
+            label="Category"
+            required
+            categories={cats}
+            value={categoryId}
+            onChange={setCategoryId}
           />
-          <datalist id="payees">
-            {payees.map((p: Payee) => (
-              <option key={p.id} value={p.name} />
-            ))}
-          </datalist>
-        </Field>
-      </div>
+          <Field label="Payee / payer">
+            <input
+              value={payee}
+              onChange={(e) => setPayee(e.target.value)}
+              list="payees"
+              placeholder="Who was this with?"
+            />
+            <datalist id="payees">
+              {payees.map((p: Payee) => (
+                <option key={p.id} value={p.name} />
+              ))}
+            </datalist>
+          </Field>
+        </div>
+      )}
 
       <div className="details">
         <div className="relative">
@@ -446,204 +550,209 @@ export function TxForm({
           </Field>
         )}
 
-        <div className="tagrow">
-          <span>Tags</span>
-          <div className="tagchips">
-            {tagSel.map((t) => (
-              <button
-                type="button"
-                key={t}
-                className="chip"
-                onClick={() => setTagSel(tagSel.filter((x) => x !== t))}
-              >
-                #{t} <i>×</i>
-              </button>
-            ))}
-            <input
-              value={tagInput}
-              onChange={(e) => setTagInput(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter' || e.key === ',') {
-                  e.preventDefault();
-                  addTag(tagInput);
-                }
-              }}
-              onBlur={() => tagInput && addTag(tagInput)}
-              placeholder="Add tag ⏎"
-              list="taglist"
-            />
-            <datalist id="taglist">
-              {tags.map((t) => (
-                <option key={t.id} value={t.name} />
-              ))}
-            </datalist>
-            {tags
-              .filter((t) => !tagSel.includes(t.name))
-              .slice(0, 6)
-              .map((t) => (
+        {type !== 'transfer' && (
+          <div className="tagrow">
+            <span>Tags</span>
+            <div className="tagchips">
+              {tagSel.map((t) => (
                 <button
                   type="button"
-                  key={t.id}
-                  className="chip ghost"
-                  onClick={() => setTagSel([...tagSel, t.name])}
+                  key={t}
+                  className="chip"
+                  onClick={() => setTagSel(tagSel.filter((x) => x !== t))}
                 >
-                  +{t.name}
+                  #{t} <i>×</i>
                 </button>
               ))}
-          </div>
-        </div>
-
-        <div className="adv">
-          {SHOW_SPLIT_EDITOR && (
-            <div className="splits">
-              <div className="splitshead">
-                <h4>
-                  Split this amount <span className="splitof">of {money(parse(amount) || 0)}</span>
-                </h4>
-                <button
-                  type="button"
-                  className="outline"
-                  disabled={!splits.length}
-                  onClick={() => setSplits([])}
-                >
-                  Clear
-                </button>
-              </div>
-              {splits.map((s, i) => (
-                <div className="splitrow" key={s.key}>
-                  <span className="splitidx">{i + 1}</span>
-                  <select
-                    value={s.categoryId}
-                    onChange={(e) => updateSplit(s.key, { categoryId: e.target.value })}
-                  >
-                    <option value="">Category</option>
-                    {roots.map((r) => (
-                      <optgroup key={r.id} label={r.name}>
-                        <option value={r.id}>{r.name} (general)</option>
-                        {categoryChildren(cats, r.id).map((c) => (
-                          <option key={c.id} value={c.id}>
-                            {c.name}
-                          </option>
-                        ))}
-                      </optgroup>
-                    ))}
-                  </select>
-                  <input
-                    inputMode="decimal"
-                    className="splitamt"
-                    value={s.amount}
-                    onChange={(e) => updateSplit(s.key, { amount: e.target.value })}
-                    placeholder="0.00"
-                  />
-                  <input
-                    value={s.description}
-                    onChange={(e) => updateSplit(s.key, { description: e.target.value })}
-                    placeholder="Description"
-                  />
-                  <input
-                    type="datetime-local"
-                    className="splitdate"
-                    value={s.occurredAt}
-                    onChange={(e) => updateSplit(s.key, { occurredAt: e.target.value })}
-                    title="Date for this split part (defaults to the transaction date)"
-                  />
+              <input
+                value={tagInput}
+                onChange={(e) => setTagInput(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' || e.key === ',') {
+                    e.preventDefault();
+                    addTag(tagInput);
+                  }
+                }}
+                onBlur={() => tagInput && addTag(tagInput)}
+                placeholder="Add tag ⏎"
+                list="taglist"
+              />
+              <datalist id="taglist">
+                {tags.map((t) => (
+                  <option key={t.id} value={t.name} />
+                ))}
+              </datalist>
+              {tags
+                .filter((t) => !tagSel.includes(t.name))
+                .slice(0, 6)
+                .map((t) => (
                   <button
                     type="button"
-                    className="splitrm"
-                    onClick={() => setSplits(splits.filter((x) => x.key !== s.key))}
+                    key={t.id}
+                    className="chip ghost"
+                    onClick={() => setTagSel([...tagSel, t.name])}
                   >
-                    ×
+                    +{t.name}
+                  </button>
+                ))}
+            </div>
+          </div>
+        )}
+
+        {type !== 'transfer' && (
+          <div className="adv">
+            {SHOW_SPLIT_EDITOR && (
+              <div className="splits">
+                <div className="splitshead">
+                  <h4>
+                    Split this amount{' '}
+                    <span className="splitof">of {money(parse(amount) || 0)}</span>
+                  </h4>
+                  <button
+                    type="button"
+                    className="outline"
+                    disabled={!splits.length}
+                    onClick={() => setSplits([])}
+                  >
+                    Clear
+                  </button>
+                </div>
+                {splits.map((s, i) => (
+                  <div className="splitrow" key={s.key}>
+                    <span className="splitidx">{i + 1}</span>
+                    <select
+                      value={s.categoryId}
+                      onChange={(e) => updateSplit(s.key, { categoryId: e.target.value })}
+                    >
+                      <option value="">Category</option>
+                      {roots.map((r) => (
+                        <optgroup key={r.id} label={r.name}>
+                          <option value={r.id}>{r.name} (general)</option>
+                          {categoryChildren(cats, r.id).map((c) => (
+                            <option key={c.id} value={c.id}>
+                              {c.name}
+                            </option>
+                          ))}
+                        </optgroup>
+                      ))}
+                    </select>
+                    <input
+                      inputMode="decimal"
+                      className="splitamt"
+                      value={s.amount}
+                      onChange={(e) => updateSplit(s.key, { amount: e.target.value })}
+                      placeholder="0.00"
+                    />
+                    <input
+                      value={s.description}
+                      onChange={(e) => updateSplit(s.key, { description: e.target.value })}
+                      placeholder="Description"
+                    />
+                    <input
+                      type="datetime-local"
+                      className="splitdate"
+                      value={s.occurredAt}
+                      onChange={(e) => updateSplit(s.key, { occurredAt: e.target.value })}
+                      title="Date for this split part (defaults to the transaction date)"
+                    />
+                    <button
+                      type="button"
+                      className="splitrm"
+                      onClick={() => setSplits(splits.filter((x) => x.key !== s.key))}
+                    >
+                      ×
+                    </button>
+                  </div>
+                ))}
+                <button
+                  type="button"
+                  className="link"
+                  onClick={() =>
+                    setSplits([
+                      ...splits,
+                      { key: uid(), categoryId: '', amount: '', description: '', occurredAt: date },
+                    ])
+                  }
+                >
+                  ＋ Add split part
+                </button>
+                {splits.length > 0 && (
+                  <div className={`splitsum${splitMismatch ? ' bad' : ' ok'}`}>
+                    Total {money(splitTotal)} {hasSplits ? `/ ${money(parse(amount) || 0)}` : ''}
+                    {splitMismatch && (
+                      <span className="splitwarn">
+                        ⚠ Splits must add up to the transaction amount before you can save.
+                      </span>
+                    )}
+                  </div>
+                )}
+              </div>
+            )}
+
+            <div className="mini">
+              <h4>Attachments</h4>
+              {existingAttach.map((a) => (
+                <div className="attachrow" key={a.id}>
+                  {a.kind === 'image' ? (
+                    <a href={a.url} target="_blank" rel="noreferrer" className="attachthumb">
+                      <img src={a.url} alt={a.file_name} />
+                    </a>
+                  ) : (
+                    <span className="attachkind">📄</span>
+                  )}
+                  <a href={a.url} target="_blank" rel="noreferrer" download={a.file_name}>
+                    {a.file_name || 'Attachment'}
+                  </a>
+                  <button
+                    type="button"
+                    className="outline"
+                    onClick={() =>
+                      api
+                        .deleteAttachment(a.id)
+                        .then(() => setExistingAttach((cur) => cur.filter((x) => x.id !== a.id)))
+                    }
+                  >
+                    Remove
                   </button>
                 </div>
               ))}
-              <button
-                type="button"
-                className="link"
-                onClick={() =>
-                  setSplits([
-                    ...splits,
-                    { key: uid(), categoryId: '', amount: '', description: '', occurredAt: date },
-                  ])
-                }
-              >
-                ＋ Add split part
-              </button>
-              {splits.length > 0 && (
-                <div className={`splitsum${splitMismatch ? ' bad' : ' ok'}`}>
-                  Total {money(splitTotal)} {hasSplits ? `/ ${money(parse(amount) || 0)}` : ''}
-                  {splitMismatch && (
-                    <span className="splitwarn">
-                      ⚠ Splits must add up to the transaction amount before you can save.
+              {staged.map((s) => (
+                <div className="attachrow" key={s.key}>
+                  {s.file.type.startsWith('image/') ? (
+                    <span className="attachthumb">
+                      <img src={s.dataUrl} alt={s.file.name} />
                     </span>
+                  ) : (
+                    <span className="attachkind">📄</span>
                   )}
+                  <span>{s.file.name} (pending save)</span>
+                  <button
+                    type="button"
+                    className="outline"
+                    onClick={() => setStaged((cur) => cur.filter((x) => x.key !== s.key))}
+                  >
+                    Remove
+                  </button>
                 </div>
-              )}
-            </div>
-          )}
-
-          <div className="mini">
-            <h4>Attachments</h4>
-            {existingAttach.map((a) => (
-              <div className="attachrow" key={a.id}>
-                {a.kind === 'image' ? (
-                  <a href={a.url} target="_blank" rel="noreferrer" className="attachthumb">
-                    <img src={a.url} alt={a.file_name} />
-                  </a>
-                ) : (
-                  <span className="attachkind">📄</span>
-                )}
-                <a href={a.url} target="_blank" rel="noreferrer" download={a.file_name}>
-                  {a.file_name || 'Attachment'}
-                </a>
-                <button
-                  type="button"
-                  className="outline"
-                  onClick={() =>
-                    api
-                      .deleteAttachment(a.id)
-                      .then(() => setExistingAttach((cur) => cur.filter((x) => x.id !== a.id)))
-                  }
-                >
-                  Remove
-                </button>
+              ))}
+              <div className="attachform">
+                <label className="outline attachpick">
+                  {attachBusy ? 'Reading…' : '＋ Add photo / file'}
+                  <input
+                    type="file"
+                    accept="image/*,application/pdf"
+                    disabled={attachBusy}
+                    onChange={(e) => {
+                      const f = e.target.files?.[0] || null;
+                      e.target.value = '';
+                      void onStageFile(f);
+                    }}
+                  />
+                </label>
               </div>
-            ))}
-            {staged.map((s) => (
-              <div className="attachrow" key={s.key}>
-                {s.file.type.startsWith('image/') ? (
-                  <span className="attachthumb">
-                    <img src={s.dataUrl} alt={s.file.name} />
-                  </span>
-                ) : (
-                  <span className="attachkind">📄</span>
-                )}
-                <span>{s.file.name} (pending save)</span>
-                <button
-                  type="button"
-                  className="outline"
-                  onClick={() => setStaged((cur) => cur.filter((x) => x.key !== s.key))}
-                >
-                  Remove
-                </button>
-              </div>
-            ))}
-            <div className="attachform">
-              <label className="outline attachpick">
-                {attachBusy ? 'Reading…' : '＋ Add photo / file'}
-                <input
-                  type="file"
-                  accept="image/*,application/pdf"
-                  disabled={attachBusy}
-                  onChange={(e) => {
-                    const f = e.target.files?.[0] || null;
-                    e.target.value = '';
-                    void onStageFile(f);
-                  }}
-                />
-              </label>
             </div>
           </div>
-        </div>
+        )}
       </div>
 
       <div className="statusrow">
@@ -667,7 +776,7 @@ export function TxForm({
       <SaveButton
         saving={saving}
         disabled={splitMismatch}
-        label={id ? 'Save changes' : 'Save transaction'}
+        label={id ? 'Save changes' : type === 'transfer' ? 'Save transfer' : 'Save transaction'}
       />
     </form>
   );

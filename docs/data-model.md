@@ -50,7 +50,23 @@ For a split parent, the sum of active split amounts must equal the parent amount
 
 `id`, `from_account_id`, `to_account_id`, `amount_minor`, `occurred_at`, `description`, `note`, timestamps, `deleted_at`
 
-A transfer creates two linked account-side entries but is not income or expense.
+A transfer moves money between two of the user's own accounts. It is the
+source of truth for amount/date/description/note, and is paired with two
+linked `transactions` rows sharing its id via `transaction_id.transfer_id`:
+an `expense` leg on `from_account_id` and an `income` leg on
+`to_account_id`, both with null category/payment method/payee. This makes
+true per-account balances work with no special-casing (money leaves one
+account, arrives in the other, like any other expense/income row), while
+`rangeStats`/`categoryBreakdown`/`entityBreakdown` explicitly exclude
+`transfer_id IS NOT NULL` rows so a transfer never shows up as income or
+expense in any report/widget — it is not income or expense.
+
+Created via `POST /api/transfers`, edited via `PUT /api/transfers/:id`
+(amount/date/description/note only — the from/to accounts are fixed once
+created). Deleting/restoring/purging either linked transaction cascades to
+its sibling leg and the `transfers` row, so a transfer always appears or
+disappears as a single unit (see `deleteTransaction`/`restoreTransaction`
+in `src/worker/routes.ts`). A transfer's expense leg cannot be refunded.
 
 ### recurring_rules
 
@@ -80,7 +96,9 @@ Receipt bytes live outside D1; D1 stores the reference.
 
 ## Balance rule
 
-`balance = opening_balance + income - expense + transfers_in - transfers_out`
+`balance = opening_balance + income - expense` (per account, computed over
+each account's own `expense`/`income`-type transactions, transfer legs
+included — see `transfers` above for why that's correct).
 
 Cleared status has no effect.
 
@@ -93,6 +111,10 @@ the `expense` total instead of being counted as `income`, so expense
 figures reflect the actual out-of-pocket amount and refunds never show up
 mixed in with real income (see `rangeStats`, `categoryBreakdown`, and
 `entityBreakdown` in `src/worker/aggregate.ts`).
+
+Transfers follow the same "excluded from every report, but count fully for
+the real per-account balance" pattern as refunds — see the `transfers`
+section above.
 
 ## Rename rule
 

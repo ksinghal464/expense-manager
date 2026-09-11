@@ -8,6 +8,7 @@ import {
   toIso,
   toMinorStrict,
   clampInt,
+  runBatches,
   INSERT_TX,
   INSERT_TX_RECURRING_IDEMPOTENT,
   checkTxReferences,
@@ -39,6 +40,8 @@ const FREQ_RE = /^(daily|weekly|monthly|yearly)$/;
 const TX_SELECT = `SELECT t.*, a.name AS account_name, c.name AS category_name, p.name AS payee_name,
   pm.name AS payment_method_name, parent.description AS refund_of_description,
   parent.occurred_at AS refund_of_occurred_at, parent.amount_minor AS refund_of_amount_minor,
+  cp.account_id AS transfer_counterpart_account_id, cpacc.name AS transfer_counterpart_account_name,
+  xfer.description AS transfer_description,
   (SELECT COALESCE(SUM(r.amount_minor),0) FROM transactions r
     WHERE r.refunds_transaction_id=t.id AND r.deleted_at IS NULL) AS refunded_minor,
   (SELECT COALESCE(SUM(r2.amount_minor),0) FROM transactions r2
@@ -48,7 +51,10 @@ const TX_SELECT = `SELECT t.*, a.name AS account_name, c.name AS category_name, 
   LEFT JOIN categories c ON c.id=t.category_id
   LEFT JOIN payees p ON p.id=t.payee_id
   LEFT JOIN payment_methods pm ON pm.id=t.payment_method_id
-  LEFT JOIN transactions parent ON parent.id=t.refunds_transaction_id`;
+  LEFT JOIN transactions parent ON parent.id=t.refunds_transaction_id
+  LEFT JOIN transactions cp ON cp.transfer_id=t.transfer_id AND cp.id<>t.id AND cp.deleted_at IS NULL
+  LEFT JOIN accounts cpacc ON cpacc.id=cp.account_id
+  LEFT JOIN transfers xfer ON xfer.id=t.transfer_id`;
 
 function str(b: Record<string, unknown>, k: string): string {
   const v = b[k];
@@ -243,13 +249,14 @@ async function createTransaction(env: Env, request: Request): Promise<Response> 
   const refundsTransactionId = optStr(b, 'refundsTransactionId');
   if (refundsTransactionId) {
     const ref = await env.DB.prepare(
-      'SELECT transaction_type FROM transactions WHERE id=? AND deleted_at IS NULL'
+      'SELECT transaction_type, transfer_id FROM transactions WHERE id=? AND deleted_at IS NULL'
     )
       .bind(refundsTransactionId)
       .first<Row>();
     if (!ref) throw new HttpError(400, 'Refund target transaction not found');
     if (ref.transaction_type !== 'expense')
       throw new HttpError(400, 'Refund target must be an expense');
+    if (ref.transfer_id) throw new HttpError(400, 'A transfer cannot be refunded');
     if (type !== 'income') throw new HttpError(400, 'A refund must be recorded as income');
   }
 
@@ -375,6 +382,8 @@ async function updateTransaction(env: Env, request: Request, txId: string): Prom
     .bind(txId)
     .first<Row>();
   if (!before) throw new HttpError(404, 'Transaction not found');
+  if (before.transfer_id)
+    throw new HttpError(400, 'Edit this transfer via PUT /api/transfers/:id instead');
   const b = await readJson(request);
   const at = now();
 
@@ -420,13 +429,14 @@ async function updateTransaction(env: Env, request: Request, txId: string): Prom
     if (refundsTransactionId === txId)
       throw new HttpError(400, 'A transaction cannot refund itself');
     const ref = await env.DB.prepare(
-      'SELECT transaction_type FROM transactions WHERE id=? AND deleted_at IS NULL'
+      'SELECT transaction_type, transfer_id FROM transactions WHERE id=? AND deleted_at IS NULL'
     )
       .bind(refundsTransactionId)
       .first<Row>();
     if (!ref) throw new HttpError(400, 'Refund target transaction not found');
     if (ref.transaction_type !== 'expense')
       throw new HttpError(400, 'Refund target must be an expense');
+    if (ref.transfer_id) throw new HttpError(400, 'A transfer cannot be refunded');
     if (type !== 'income') throw new HttpError(400, 'A refund must be recorded as income');
   }
 
@@ -569,9 +579,16 @@ async function updateTransaction(env: Env, request: Request, txId: string): Prom
   return json(await txDetail(env, txId));
 }
 
-async function deleteTransaction(env: Env, txId: string, hard: boolean): Promise<Response> {
+async function deleteTransaction(
+  env: Env,
+  txId: string,
+  hard: boolean,
+  cascaded = false
+): Promise<Response> {
   const before = await env.DB.prepare(
-    'SELECT * FROM transactions WHERE id=? AND deleted_at IS NULL'
+    hard
+      ? 'SELECT * FROM transactions WHERE id=?'
+      : 'SELECT * FROM transactions WHERE id=? AND deleted_at IS NULL'
   )
     .bind(txId)
     .first<Row>();
@@ -583,6 +600,20 @@ async function deleteTransaction(env: Env, txId: string, hard: boolean): Promise
       .run();
     await untouchDescriptionSuggestion(env, before.description, at);
     await audit(env, 'transaction', txId, 'delete', before, { ...before, deleted_at: at });
+    // A transfer is two linked legs + a transfers row — keep all three in sync
+    // so the transfer disappears/reappears as a single unit from the user's
+    // perspective, instead of leaving an orphaned half-transfer behind.
+    if (!cascaded && before.transfer_id) {
+      const sibling = await env.DB.prepare(
+        'SELECT id FROM transactions WHERE transfer_id=? AND id<>? AND deleted_at IS NULL'
+      )
+        .bind(before.transfer_id, txId)
+        .first<Row>();
+      if (sibling) await deleteTransaction(env, sibling.id, false, true);
+      await env.DB.prepare('UPDATE transfers SET deleted_at=?, updated_at=? WHERE id=?')
+        .bind(at, at, before.transfer_id)
+        .run();
+    }
     return json({ ok: true });
   }
   // hard delete + dependents; unlink any refunds pointing here
@@ -598,10 +629,19 @@ async function deleteTransaction(env: Env, txId: string, hard: boolean): Promise
   await env.DB.prepare('DELETE FROM transactions WHERE id=?').bind(txId).run();
   await untouchDescriptionSuggestion(env, before.description, at);
   await audit(env, 'transaction', txId, 'delete', before, null, { hard: true });
+  if (!cascaded && before.transfer_id) {
+    const sibling = await env.DB.prepare(
+      'SELECT id FROM transactions WHERE transfer_id=? AND id<>?'
+    )
+      .bind(before.transfer_id, txId)
+      .first<Row>();
+    if (sibling) await deleteTransaction(env, sibling.id, true, true);
+    await env.DB.prepare('DELETE FROM transfers WHERE id=?').bind(before.transfer_id).run();
+  }
   return json({ ok: true });
 }
 
-async function restoreTransaction(env: Env, txId: string): Promise<Response> {
+async function restoreTransaction(env: Env, txId: string, cascaded = false): Promise<Response> {
   const before = await env.DB.prepare(
     'SELECT * FROM transactions WHERE id=? AND deleted_at IS NOT NULL'
   )
@@ -614,6 +654,17 @@ async function restoreTransaction(env: Env, txId: string): Promise<Response> {
     .run();
   await touchDescriptionSuggestion(env, before.description, at);
   await audit(env, 'transaction', txId, 'restore', before, { ...before, deleted_at: null });
+  if (!cascaded && before.transfer_id) {
+    const sibling = await env.DB.prepare(
+      'SELECT id FROM transactions WHERE transfer_id=? AND id<>? AND deleted_at IS NOT NULL'
+    )
+      .bind(before.transfer_id, txId)
+      .first<Row>();
+    if (sibling) await restoreTransaction(env, sibling.id, true);
+    await env.DB.prepare('UPDATE transfers SET deleted_at=NULL, updated_at=? WHERE id=?')
+      .bind(at, before.transfer_id)
+      .run();
+  }
   return json({ ok: true });
 }
 
@@ -621,8 +672,192 @@ async function purgeAllTrash(env: Env): Promise<{ purged: number }> {
   const trashed = await env.DB.prepare(
     'SELECT id FROM transactions WHERE deleted_at IS NOT NULL'
   ).all<Row>();
-  for (const t of trashed.results) await deleteTransaction(env, t.id, true);
-  return { purged: trashed.results.length };
+  let purged = 0;
+  for (const t of trashed.results) {
+    // A prior iteration may have already purged this row via its sibling
+    // transfer leg's cascade — skip it instead of erroring.
+    const still = await env.DB.prepare('SELECT 1 AS ok FROM transactions WHERE id=?')
+      .bind(t.id)
+      .first<Row>();
+    if (!still) continue;
+    await deleteTransaction(env, t.id, true);
+    purged++;
+  }
+  return { purged };
+}
+
+// ---------------- transfers ----------------
+// A transfer moves money between two of the user's own accounts. It is
+// stored as one `transfers` row (the source of truth for amount/date/
+// description/note) plus two linked `transactions` rows sharing that
+// transfer's id via `transfer_id`: an 'expense' leg on the source account
+// and an 'income' leg on the destination account. Both legs carry no
+// category/payment method/payee. This makes true per-account balances
+// work automatically (see buildDashboard in aggregate.ts), while
+// rangeStats/categoryBreakdown/entityBreakdown explicitly exclude
+// transfer_id IS NOT NULL rows so a transfer never shows up as real
+// income or expense in any report/widget.
+async function createTransfer(env: Env, request: Request): Promise<Response> {
+  const b = await readJson(request);
+  const at = now();
+  const fromAccountId = str(b, 'fromAccountId');
+  const toAccountId = str(b, 'toAccountId');
+  const amountMinor = toMinorStrict(b['amount']);
+  if (!fromAccountId) throw new HttpError(400, 'fromAccountId is required');
+  if (!toAccountId) throw new HttpError(400, 'toAccountId is required');
+  if (fromAccountId === toAccountId)
+    throw new HttpError(400, 'From and to accounts must be different');
+  if (!(amountMinor > 0)) throw new HttpError(400, 'amount must be greater than zero');
+  const [fromAcc, toAcc] = await Promise.all([
+    env.DB.prepare('SELECT name FROM accounts WHERE id=? AND deleted_at IS NULL')
+      .bind(fromAccountId)
+      .first<Row>(),
+    env.DB.prepare('SELECT name FROM accounts WHERE id=? AND deleted_at IS NULL')
+      .bind(toAccountId)
+      .first<Row>(),
+  ]);
+  if (!fromAcc) throw new HttpError(400, 'From account not found');
+  if (!toAcc) throw new HttpError(400, 'To account not found');
+
+  const status = STATUS_RE.test(str(b, 'status')) ? str(b, 'status') : 'cleared';
+  const note = str(b, 'note');
+  const occurredAt = toIso(b['occurredAt']);
+  const customDescription = optStr(b, 'description');
+  const outDescription = customDescription || `Transfer to ${toAcc.name}`;
+  const inDescription = customDescription || `Transfer from ${fromAcc.name}`;
+
+  const transferId = id();
+  const outId = id();
+  const inId = id();
+  const transfer = {
+    id: transferId,
+    from_account_id: fromAccountId,
+    to_account_id: toAccountId,
+    amount_minor: amountMinor,
+    occurred_at: occurredAt,
+    description: customDescription || '',
+    note,
+    created_at: at,
+    updated_at: at,
+  };
+
+  await runBatches(env, [
+    env.DB.prepare(
+      `INSERT INTO transfers (id,from_account_id,to_account_id,amount_minor,occurred_at,description,note,created_at,updated_at)
+       VALUES (?,?,?,?,?,?,?,?,?)`
+    ).bind(
+      transferId,
+      fromAccountId,
+      toAccountId,
+      amountMinor,
+      occurredAt,
+      transfer.description,
+      note,
+      at,
+      at
+    ),
+    env.DB.prepare(
+      `INSERT INTO transactions
+        (id,account_id,payment_method_id,category_id,payee_id,transaction_type,amount_minor,occurred_at,
+         description,note,status,transfer_id,is_split_parent,created_at,updated_at)
+       VALUES (?,?,NULL,NULL,NULL,'expense',?,?,?,?,?,?,0,?,?)`
+    ).bind(
+      outId,
+      fromAccountId,
+      amountMinor,
+      occurredAt,
+      outDescription,
+      note,
+      status,
+      transferId,
+      at,
+      at
+    ),
+    env.DB.prepare(
+      `INSERT INTO transactions
+        (id,account_id,payment_method_id,category_id,payee_id,transaction_type,amount_minor,occurred_at,
+         description,note,status,transfer_id,is_split_parent,created_at,updated_at)
+       VALUES (?,?,NULL,NULL,NULL,'income',?,?,?,?,?,?,0,?,?)`
+    ).bind(
+      inId,
+      toAccountId,
+      amountMinor,
+      occurredAt,
+      inDescription,
+      note,
+      status,
+      transferId,
+      at,
+      at
+    ),
+  ]);
+
+  await audit(env, 'transfer', transferId, 'create', null, transfer);
+  const created = await env.DB.prepare('SELECT * FROM transfers WHERE id=?')
+    .bind(transferId)
+    .first<Row>();
+  return json(created, { status: 201 });
+}
+
+async function updateTransfer(env: Env, request: Request, transferId: string): Promise<Response> {
+  const before = await env.DB.prepare('SELECT * FROM transfers WHERE id=? AND deleted_at IS NULL')
+    .bind(transferId)
+    .first<Row>();
+  if (!before) throw new HttpError(404, 'Transfer not found');
+  const legs = await env.DB.prepare(
+    'SELECT * FROM transactions WHERE transfer_id=? AND deleted_at IS NULL'
+  )
+    .bind(transferId)
+    .all<Row>();
+  if (legs.results.length !== 2)
+    throw new HttpError(500, 'Transfer is missing one of its two linked transactions');
+  const outLeg = legs.results.find((r) => r.transaction_type === 'expense');
+  const inLeg = legs.results.find((r) => r.transaction_type === 'income');
+  if (!outLeg || !inLeg) throw new HttpError(500, 'Transfer legs are inconsistent');
+
+  const b = await readJson(request);
+  const at = now();
+  const amountMinor = b['amount'] !== undefined ? toMinorStrict(b['amount']) : before.amount_minor;
+  if (!(amountMinor > 0)) throw new HttpError(400, 'amount must be greater than zero');
+  const occurredAt = b['occurredAt'] !== undefined ? toIso(b['occurredAt']) : before.occurred_at;
+  const note = b['note'] !== undefined ? String(b['note']) : before.note;
+  const status = STATUS_RE.test(str(b, 'status')) ? str(b, 'status') : outLeg.status;
+  const customDescription =
+    b['description'] !== undefined ? String(b['description']) : before.description;
+
+  const [fromAcc, toAcc] = await Promise.all([
+    env.DB.prepare('SELECT name FROM accounts WHERE id=?')
+      .bind(before.from_account_id)
+      .first<Row>(),
+    env.DB.prepare('SELECT name FROM accounts WHERE id=?').bind(before.to_account_id).first<Row>(),
+  ]);
+  const outDescription = customDescription || `Transfer to ${toAcc?.name || ''}`;
+  const inDescription = customDescription || `Transfer from ${fromAcc?.name || ''}`;
+
+  await runBatches(env, [
+    env.DB.prepare(
+      'UPDATE transfers SET amount_minor=?, occurred_at=?, description=?, note=?, updated_at=? WHERE id=?'
+    ).bind(amountMinor, occurredAt, customDescription, note, at, transferId),
+    env.DB.prepare(
+      'UPDATE transactions SET amount_minor=?, occurred_at=?, description=?, note=?, status=?, updated_at=? WHERE id=?'
+    ).bind(amountMinor, occurredAt, outDescription, note, status, at, outLeg.id),
+    env.DB.prepare(
+      'UPDATE transactions SET amount_minor=?, occurred_at=?, description=?, note=?, status=?, updated_at=? WHERE id=?'
+    ).bind(amountMinor, occurredAt, inDescription, note, status, at, inLeg.id),
+  ]);
+
+  await audit(env, 'transfer', transferId, 'update', before, {
+    ...before,
+    amount_minor: amountMinor,
+    occurred_at: occurredAt,
+    description: customDescription,
+    note,
+    updated_at: at,
+  });
+  const updated = await env.DB.prepare('SELECT * FROM transfers WHERE id=?')
+    .bind(transferId)
+    .first<Row>();
+  return json(updated);
 }
 
 // ---------------- master data ----------------
@@ -1443,6 +1678,12 @@ export async function route(request: Request, url: URL, env: Env): Promise<Respo
     if (m === 'POST' && seg[3] === 'restore') return res(await restoreTransaction(env, txId));
     if (m === 'POST' && seg[3] === 'purge') return res(await deleteTransaction(env, txId, true));
   }
+  if (p === '/api/transfers') {
+    if (m === 'POST') return res(await createTransfer(env, request));
+  }
+  if (seg[1] === 'transfers' && seg[2]) {
+    if (m === 'PUT') return res(await updateTransfer(env, request, seg[2]));
+  }
   if (p === '/api/trash') {
     if (m === 'GET')
       return res(
@@ -1533,16 +1774,23 @@ export async function route(request: Request, url: URL, env: Env): Promise<Respo
     const error = url.searchParams.get('error');
     const back = `${url.protocol}//${url.host}/?manage=data`;
     if (error)
-      return res(textBody(driveCallbackHtml('error', `${back}&drive=error`), 'text/html; charset=utf-8'));
+      return res(
+        textBody(driveCallbackHtml('error', `${back}&drive=error`), 'text/html; charset=utf-8')
+      );
     if (!code) throw new HttpError(400, 'Missing authorization code.');
     try {
       await driveHandleCallback(env, url, code, state);
     } catch (e) {
       console.error('drive: OAuth callback failed', e);
-      return res(textBody(driveCallbackHtml('error', `${back}&drive=error`), 'text/html; charset=utf-8'));
+      return res(
+        textBody(driveCallbackHtml('error', `${back}&drive=error`), 'text/html; charset=utf-8')
+      );
     }
     return res(
-      textBody(driveCallbackHtml('connected', `${back}&drive=connected`), 'text/html; charset=utf-8')
+      textBody(
+        driveCallbackHtml('connected', `${back}&drive=connected`),
+        'text/html; charset=utf-8'
+      )
     );
   }
   if (m === 'POST' && p === '/api/drive/disconnect') {

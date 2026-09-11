@@ -734,6 +734,9 @@ input[type='file'] {
   margin-top: 3px;
   font-weight: 700;
 }
+.transferamt {
+  color: #3f6fa8 !important;
+}
 .txamountcol {
   flex: none;
   text-align: right;
@@ -1244,12 +1247,21 @@ h1 {
   font-size: 19px;
 }
 .typechoice {
+  grid-template-columns: 1fr 1fr 1fr;
   gap: 8px;
   margin-bottom: 12px;
 }
 .typechoice button {
   padding: 11px;
   border-radius: 11px;
+}
+.typechoice button.transferchoice {
+  border: 2px solid #6c9bd1;
+  background: #f0f6fc;
+}
+.typechoice button:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
 }
 .amount {
   margin-bottom: 10px;

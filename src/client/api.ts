@@ -10,6 +10,7 @@ import type {
   ImportSummary,
   RecurringRule,
   AuditEntry,
+  Transfer,
 } from '../shared/types';
 
 export type SplitRow = {
@@ -137,6 +138,15 @@ export const api = {
   purgeTransaction: (id: string) => post(`/api/transactions/${id}/purge`, {}),
   trash: () => req<TxView[]>('/api/trash'),
   purgeTrash: () => post('/api/trash/purge', {}),
+
+  createTransfer: (body: Record<string, unknown>) =>
+    req<Transfer>('/api/transfers', { method: 'POST', headers: J, body: JSON.stringify(body) }),
+  updateTransfer: (transferId: string, body: Record<string, unknown>) =>
+    req<Transfer>(`/api/transfers/${transferId}`, {
+      method: 'PUT',
+      headers: J,
+      body: JSON.stringify(body),
+    }),
 
   accounts: () => req<Account[]>('/api/accounts'),
   saveAccount: (id: string | null, body: Record<string, unknown>) =>

@@ -18,17 +18,25 @@ export function TxRow({
 }) {
   const isIncome = t.transaction_type === 'income';
   const isRefund = !!t.refunds_transaction_id;
+  const isTransfer = !!t.transfer_id;
   const hasRefunds = !isRefund && (t.refunded_minor || 0) > 0;
   const categoryLabel = categoryDisplayName(categories, t.category_id, t.category_name);
   return (
-    <button className={`tx${isRefund ? ' refund' : ''}`} onClick={onClick}>
+    <button
+      className={`tx${isRefund ? ' refund' : ''}${isTransfer ? ' transfer' : ''}`}
+      onClick={onClick}
+    >
       <div className="avatar">{avatarLetter(t.description, t.payee_name, t.category_name)}</div>
       <div className="txmain">
         <strong>{t.description || t.payee_name || ''}</strong>
         <span>
-          {categoryLabel}
-          {t.payee_name ? ` · ${t.payee_name}` : ''}
-          {t.is_split_parent ? ' · Split' : ''}
+          {isTransfer
+            ? isIncome
+              ? `⇄ Transfer from ${t.transfer_counterpart_account_name || 'another account'}`
+              : `⇄ Transfer to ${t.transfer_counterpart_account_name || 'another account'}`
+            : categoryLabel}
+          {!isTransfer && t.payee_name ? ` · ${t.payee_name}` : ''}
+          {!isTransfer && t.is_split_parent ? ' · Split' : ''}
         </span>
         {t.note && <span className="txnote">📝 {t.note}</span>}
         {isRefund && t.refunds_transaction_id && (
@@ -64,7 +72,7 @@ export function TxRow({
         </small>
       </div>
       <div className="txamountcol">
-        <b className={isIncome ? 'positive' : ''}>
+        <b className={isTransfer ? 'transferamt' : isIncome ? 'positive' : ''}>
           {signedMoney(t.amount_minor, t.transaction_type)}
         </b>
         {balance !== undefined && (

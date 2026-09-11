@@ -11,7 +11,7 @@ export async function rangeStats(
   to: string | null,
   accountId?: string | null
 ): Promise<{ income: number; expense: number; refunded: number }> {
-  const clauses = ['deleted_at IS NULL', 'occurred_at >= ?'];
+  const clauses = ['deleted_at IS NULL', 'transfer_id IS NULL', 'occurred_at >= ?'];
   const params: unknown[] = [from];
   if (to) {
     clauses.push('occurred_at < ?');
@@ -78,14 +78,14 @@ export async function categoryBreakdown(
        SELECT t.category_id AS id, COALESCE(c.name, 'Uncategorized') AS name, t.amount_minor AS total
        FROM transactions t LEFT JOIN categories c ON c.id = t.category_id
        WHERE t.deleted_at IS NULL AND t.transaction_type='${type}' AND t.is_split_parent=0
-         AND t.occurred_at >= ? ${toClauseA} ${acctClauseA} ${refundClauseA}
+         AND t.transfer_id IS NULL AND t.occurred_at >= ? ${toClauseA} ${acctClauseA} ${refundClauseA}
        UNION ALL
        SELECT s.category_id AS id, COALESCE(c.name, 'Uncategorized') AS name, s.amount_minor AS total
        FROM transaction_splits s
        JOIN transactions t ON t.id = s.transaction_id
        LEFT JOIN categories c ON c.id = s.category_id
        WHERE t.deleted_at IS NULL AND s.deleted_at IS NULL AND t.transaction_type='${type}'
-         AND t.is_split_parent=1 AND t.occurred_at >= ? ${toClauseB} ${acctClauseB} ${refundClauseB}
+         AND t.is_split_parent=1 AND t.transfer_id IS NULL AND t.occurred_at >= ? ${toClauseB} ${acctClauseB} ${refundClauseB}
      )
      GROUP BY COALESCE(id, ''), name ORDER BY total DESC`
   )
@@ -226,7 +226,12 @@ export async function entityBreakdown(
   const joinTable = dimension === 'method' ? 'payment_methods' : 'payees';
   const joinAlias = dimension === 'method' ? 'pm' : 'py';
   const fallbackName = dimension === 'method' ? 'No payment method' : 'No payee';
-  const clauses = [`t.deleted_at IS NULL`, `t.transaction_type='${type}'`, 't.occurred_at >= ?'];
+  const clauses = [
+    `t.deleted_at IS NULL`,
+    `t.transaction_type='${type}'`,
+    't.transfer_id IS NULL',
+    't.occurred_at >= ?',
+  ];
   const params: unknown[] = [from];
   if (type === 'income') {
     // Refunds are income-type rows but are netted against expense instead of

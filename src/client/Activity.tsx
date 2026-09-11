@@ -60,7 +60,7 @@ export function Activity() {
     clearActivityFilter,
   } = useStore();
   const [query, setQuery] = useState('');
-  const [type, setType] = useState<'all' | 'expense' | 'income'>('all');
+  const [type, setType] = useState<'all' | 'expense' | 'income' | 'transfer'>('all');
   const [accountId, setAccountId] = useState('');
   const [categoryId, setCategoryId] = useState<string | null | undefined>(undefined);
   const [methodId, setMethodId] = useState('');
@@ -136,11 +136,18 @@ export function Activity() {
     if (type === 'expense') {
       // Refunds net against expense (see rangeStats in aggregate.ts), so include
       // them here too so this list's total matches the dashboard's expense widget.
-      list = list.filter((t) => t.transaction_type === 'expense' || !!t.refunds_transaction_id);
+      // Transfer legs are excluded — they're neither real expense nor income.
+      list = list.filter(
+        (t) => (t.transaction_type === 'expense' || !!t.refunds_transaction_id) && !t.transfer_id
+      );
     } else if (type === 'income') {
-      // Refunds are excluded from "income" everywhere (dashboard + here) so they
-      // never get confused with real income.
-      list = list.filter((t) => t.transaction_type === 'income' && !t.refunds_transaction_id);
+      // Refunds and transfer legs are excluded from "income" everywhere
+      // (dashboard + here) so they never get confused with real income.
+      list = list.filter(
+        (t) => t.transaction_type === 'income' && !t.refunds_transaction_id && !t.transfer_id
+      );
+    } else if (type === 'transfer') {
+      list = list.filter((t) => !!t.transfer_id);
     }
     if (accountId) list = list.filter((t) => t.account_id === accountId);
     if (categoryId !== undefined) list = list.filter((t) => (t.category_id || null) === categoryId);
@@ -390,6 +397,7 @@ export function Activity() {
                 ['all', 'All'],
                 ['expense', 'Expense'],
                 ['income', 'Income'],
+                ['transfer', 'Transfer'],
               ] as const
             ).map(([id, l]) => (
               <button

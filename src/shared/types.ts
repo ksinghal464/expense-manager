@@ -70,6 +70,7 @@ export interface TxRow {
   refunds_transaction_id: string | null;
   parent_transaction_id: string | null;
   recurring_rule_id: string | null;
+  transfer_id: string | null;
   is_split_parent: number;
   created_at: string;
   updated_at: string;
@@ -85,11 +86,27 @@ export interface TxView extends TxRow {
   refund_of_occurred_at?: string | null;
   refund_of_amount_minor?: number | null;
   refund_siblings_total?: number;
+  transfer_counterpart_account_id?: string | null;
+  transfer_counterpart_account_name?: string | null;
+  transfer_description?: string | null;
   tags?: string[];
   splits?: SplitRow[];
   refunds?: TxView[];
   refunded_minor?: number;
   net_minor?: number;
+}
+
+export interface Transfer {
+  id: string;
+  from_account_id: string;
+  to_account_id: string;
+  amount_minor: number;
+  occurred_at: string;
+  description: string;
+  note: string;
+  created_at: string;
+  updated_at: string;
+  deleted_at: string | null;
 }
 
 export interface SplitRow {

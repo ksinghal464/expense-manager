@@ -67,14 +67,24 @@ export function TxDetail({
     );
   if (!tx) return <div className="loading">Loading…</div>;
 
+  const isTransfer = !!tx.transfer_id;
+
   return (
     <div className="detail">
       <div className="detailamount">
-        <b className={tx.transaction_type === 'income' ? 'positive' : ''}>
+        <b
+          className={
+            isTransfer ? 'transferamt' : tx.transaction_type === 'income' ? 'positive' : ''
+          }
+        >
           {signedMoney(tx.amount_minor, tx.transaction_type)}
         </b>
         <span>
-          {tx.transaction_type === 'income' ? 'Income' : 'Expense'} · {tx.status}
+          {isTransfer
+            ? tx.transaction_type === 'income'
+              ? `⇄ Transfer from ${tx.transfer_counterpart_account_name || 'another account'}`
+              : `⇄ Transfer to ${tx.transfer_counterpart_account_name || 'another account'}`
+            : `${tx.transaction_type === 'income' ? 'Income' : 'Expense'} · ${tx.status}`}
           {tx.refunds_transaction_id ? ' · Refund' : ''}
           {tx.is_split_parent ? ' · Split' : ''}
         </span>
@@ -83,12 +93,21 @@ export function TxDetail({
       <div className="detailgrid">
         <Detail label="Date & time" value={fmtDateTime(tx.occurred_at)} />
         <Detail label="Account" value={tx.account_name} />
-        <Detail label="Payment method" value={tx.payment_method_name || '—'} />
-        <Detail
-          label="Category"
-          value={categoryDisplayName(categories, tx.category_id, tx.category_name)}
-        />
-        <Detail label="Payee / payer" value={tx.payee_name || '—'} />
+        {isTransfer ? (
+          <Detail
+            label={tx.transaction_type === 'income' ? 'From account' : 'To account'}
+            value={tx.transfer_counterpart_account_name || '—'}
+          />
+        ) : (
+          <>
+            <Detail label="Payment method" value={tx.payment_method_name || '—'} />
+            <Detail
+              label="Category"
+              value={categoryDisplayName(categories, tx.category_id, tx.category_name)}
+            />
+            <Detail label="Payee / payer" value={tx.payee_name || '—'} />
+          </>
+        )}
         <Detail label="Description" value={tx.description || '—'} />
         <Detail label="Note" value={tx.note || '—'} />
       </div>
@@ -205,7 +224,7 @@ export function TxDetail({
             <button className="outline" onClick={() => open({ kind: 'editTx', id })}>
               Edit
             </button>
-            {tx.transaction_type === 'expense' && !tx.refunds_transaction_id && (
+            {tx.transaction_type === 'expense' && !tx.refunds_transaction_id && !isTransfer && (
               <button className="outline" onClick={() => open({ kind: 'tx', refundOf: id })}>
                 ↩ Add refund
               </button>
@@ -254,12 +273,16 @@ export function TxDetail({
 
       {confirm && (
         <ConfirmDialog
-          title="Delete this transaction?"
-          message="It moves to Trash and stays in the audit log — you can restore it later from Manage → Trash."
+          title={isTransfer ? 'Delete this transfer?' : 'Delete this transaction?'}
+          message={
+            isTransfer
+              ? 'Both sides of the transfer move to Trash together and stay in the audit log — you can restore them later from Manage → Trash.'
+              : 'It moves to Trash and stays in the audit log — you can restore it later from Manage → Trash.'
+          }
           confirmLabel="Delete"
           onConfirm={async () => {
             await api.deleteTransaction(id);
-            await after('Moved to trash');
+            await after(isTransfer ? 'Transfer moved to trash' : 'Moved to trash');
             close();
           }}
           close={() => setConfirm(false)}

@@ -14,7 +14,7 @@ import type {
 export type Page = 'dashboard' | 'activity' | 'recurring' | 'manage';
 
 export type ActivityFilter = {
-  type?: 'expense' | 'income';
+  type?: 'expense' | 'income' | 'transfer';
   accountId?: string;
   categoryId?: string | null;
   methodId?: string;
