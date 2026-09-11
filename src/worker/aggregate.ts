@@ -1,6 +1,7 @@
 import { Env } from './http';
 import { periodStart, PERIOD_PRESETS } from '../shared/period';
 import type { Dashboard, Account, DashboardFrame, CategoryTotal } from '../shared/types';
+import { TRANSFER_BUCKET_ID, TRANSFER_BUCKET_NAME } from '../shared/types';
 
 type Row = Record<string, any>;
 
@@ -11,7 +12,7 @@ export async function rangeStats(
   to: string | null,
   accountId?: string | null
 ): Promise<{ income: number; expense: number; refunded: number }> {
-  const clauses = ['deleted_at IS NULL', 'transfer_id IS NULL', 'occurred_at >= ?'];
+  const clauses = ['deleted_at IS NULL', 'occurred_at >= ?'];
   const params: unknown[] = [from];
   if (to) {
     clauses.push('occurred_at < ?');
@@ -42,6 +43,11 @@ export async function rangeStats(
  * one account. Split transactions are broken down by each split's own
  * category rather than the parent row's category (splits only apply to
  * expenses, so income is never split).
+ *
+ * Transfer legs have no real category — they're grouped into a synthetic
+ * "Transfer" bucket (TRANSFER_BUCKET_ID) instead of falling into
+ * "Uncategorized", and count fully as expense (source account) / income
+ * (destination account), same as any other transaction.
  *
  * For expense breakdowns, refunds linked to an expense (via
  * refunds_transaction_id) are netted out of the refunded expense's
@@ -75,17 +81,20 @@ export async function categoryBreakdown(
   const paramsB = [from, ...(to ? [to] : []), ...(opts.accountId ? [opts.accountId] : [])];
   const r = await env.DB.prepare(
     `SELECT id, name, SUM(total) AS total FROM (
-       SELECT t.category_id AS id, COALESCE(c.name, 'Uncategorized') AS name, t.amount_minor AS total
+       SELECT
+         CASE WHEN t.transfer_id IS NOT NULL THEN '${TRANSFER_BUCKET_ID}' ELSE t.category_id END AS id,
+         CASE WHEN t.transfer_id IS NOT NULL THEN '${TRANSFER_BUCKET_NAME}' ELSE COALESCE(c.name, 'Uncategorized') END AS name,
+         t.amount_minor AS total
        FROM transactions t LEFT JOIN categories c ON c.id = t.category_id
        WHERE t.deleted_at IS NULL AND t.transaction_type='${type}' AND t.is_split_parent=0
-         AND t.transfer_id IS NULL AND t.occurred_at >= ? ${toClauseA} ${acctClauseA} ${refundClauseA}
+         AND t.occurred_at >= ? ${toClauseA} ${acctClauseA} ${refundClauseA}
        UNION ALL
        SELECT s.category_id AS id, COALESCE(c.name, 'Uncategorized') AS name, s.amount_minor AS total
        FROM transaction_splits s
        JOIN transactions t ON t.id = s.transaction_id
        LEFT JOIN categories c ON c.id = s.category_id
        WHERE t.deleted_at IS NULL AND s.deleted_at IS NULL AND t.transaction_type='${type}'
-         AND t.is_split_parent=1 AND t.transfer_id IS NULL AND t.occurred_at >= ? ${toClauseB} ${acctClauseB} ${refundClauseB}
+         AND t.is_split_parent=1 AND t.occurred_at >= ? ${toClauseB} ${acctClauseB} ${refundClauseB}
      )
      GROUP BY COALESCE(id, ''), name ORDER BY total DESC`
   )
@@ -207,7 +216,11 @@ async function applyRefundAdjustments(
  * Payment-method or payee breakdown (expense or income) for [from, to),
  * optionally scoped to one account. Unlike categories, methods/payees are
  * plain transaction-level attributes (splits don't carry their own), so a
- * single grouped query is enough. For expense breakdowns, refunds are
+ * single grouped query is enough. Transfer legs count fully as expense
+ * (source account) / income (destination account); they may have a real
+ * payment method (grouped normally, or "No payment method" if none was
+ * set), but never a payee — those are grouped into a synthetic "Transfer"
+ * bucket instead of "No payee". For expense breakdowns, refunds are
  * netted out of the refunded expense's own method/payee bucket (see
  * categoryBreakdown for the period/account semantics of when a refund is
  * counted); income breakdowns exclude refund rows entirely so they aren't
@@ -226,12 +239,15 @@ export async function entityBreakdown(
   const joinTable = dimension === 'method' ? 'payment_methods' : 'payees';
   const joinAlias = dimension === 'method' ? 'pm' : 'py';
   const fallbackName = dimension === 'method' ? 'No payment method' : 'No payee';
-  const clauses = [
-    `t.deleted_at IS NULL`,
-    `t.transaction_type='${type}'`,
-    't.transfer_id IS NULL',
-    't.occurred_at >= ?',
-  ];
+  const idExpr =
+    dimension === 'payee'
+      ? `CASE WHEN t.transfer_id IS NOT NULL THEN '${TRANSFER_BUCKET_ID}' ELSE ${idCol} END`
+      : idCol;
+  const nameExpr =
+    dimension === 'payee'
+      ? `CASE WHEN t.transfer_id IS NOT NULL THEN '${TRANSFER_BUCKET_NAME}' ELSE COALESCE(${joinAlias}.name, '${fallbackName}') END`
+      : `COALESCE(${joinAlias}.name, '${fallbackName}')`;
+  const clauses = [`t.deleted_at IS NULL`, `t.transaction_type='${type}'`, 't.occurred_at >= ?'];
   const params: unknown[] = [from];
   if (type === 'income') {
     // Refunds are income-type rows but are netted against expense instead of
@@ -248,10 +264,10 @@ export async function entityBreakdown(
     params.push(opts.accountId);
   }
   const r = await env.DB.prepare(
-    `SELECT ${idCol} AS id, COALESCE(${joinAlias}.name, '${fallbackName}') AS name, SUM(t.amount_minor) AS total
+    `SELECT ${idExpr} AS id, ${nameExpr} AS name, SUM(t.amount_minor) AS total
      FROM transactions t LEFT JOIN ${joinTable} ${joinAlias} ON ${joinAlias}.id = ${idCol}
      WHERE ${clauses.join(' AND ')}
-     GROUP BY COALESCE(${idCol}, ''), name ORDER BY total DESC`
+     GROUP BY COALESCE(${idExpr}, ''), name ORDER BY total DESC`
   )
     .bind(...params)
     .all<Row>();

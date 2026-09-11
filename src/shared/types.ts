@@ -2,6 +2,16 @@ export type TxType = 'expense' | 'income';
 export type TxStatus = 'cleared' | 'uncleared';
 export type CategoryKind = 'expense' | 'income' | 'both';
 
+/**
+ * Synthetic bucket id/name used by categoryBreakdown/entityBreakdown (payee
+ * dimension) to group transfer legs, since a transfer has no real category
+ * or payee. Shared between the worker (which produces it) and the client
+ * (which needs to recognize it to drill into Activity correctly, since real
+ * transfer legs have category_id/payee_id = NULL, not this sentinel).
+ */
+export const TRANSFER_BUCKET_ID = '__transfer__';
+export const TRANSFER_BUCKET_NAME = 'Transfer';
+
 export interface Account {
   id: string;
   name: string;

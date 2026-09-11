@@ -56,12 +56,19 @@ linked `transactions` rows sharing its id via `transaction_id.transfer_id`:
 an `expense` leg on `from_account_id` and an `income` leg on
 `to_account_id`, each optionally with its own payment method (validated to
 belong to its account) but no category/payee — a transfer isn't
-categorized. This makes true per-account balances work with no
-special-casing (money leaves one account, arrives in the other, like any
-other expense/income row), while
-`rangeStats`/`categoryBreakdown`/`entityBreakdown` explicitly exclude
-`transfer_id IS NOT NULL` rows so a transfer never shows up as income or
-expense in any report/widget — it is not income or expense.
+categorized. Both legs count fully as real expense/income in every
+report/widget (`rangeStats`/`categoryBreakdown`/`entityBreakdown`), same
+as any other transaction — a transfer's source-account leg reduces that
+account's expense total, its destination-account leg adds to that
+account's income total, even in the combined "all accounts" view (where
+the two legs naturally cancel out in any income-minus-expense net/balance
+figure, since money didn't leave your total net worth, but the raw Income
+and Expense totals do include the movement). Category and payee
+breakdowns group transfer legs into a synthetic "Transfer" bucket
+(`TRANSFER_BUCKET_ID` in `src/shared/types.ts`) instead of
+"Uncategorized"/"No payee", since a transfer has neither. Payment-method
+breakdowns use the leg's real method (or "No payment method" if none was
+set), same as any transaction.
 
 Created via `POST /api/transfers`, edited via `PUT /api/transfers/:id`
 (amount/date/description/note/payment methods — the from/to accounts
@@ -115,9 +122,10 @@ figures reflect the actual out-of-pocket amount and refunds never show up
 mixed in with real income (see `rangeStats`, `categoryBreakdown`, and
 `entityBreakdown` in `src/worker/aggregate.ts`).
 
-Transfers follow the same "excluded from every report, but count fully for
-the real per-account balance" pattern as refunds — see the `transfers`
-section above.
+Transfers, unlike refunds, are **not** excluded from reports — see the
+`transfers` section above for how they count as real expense/income
+everywhere (with a synthetic "Transfer" bucket in category/payee
+breakdowns).
 
 ## Rename rule
 

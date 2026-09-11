@@ -696,11 +696,13 @@ async function purgeAllTrash(env: Env): Promise<{ purged: number }> {
 // transfer's id via `transfer_id`: an 'expense' leg on the source account
 // and an 'income' leg on the destination account, each optionally with its
 // own payment method (no category/payee — a transfer isn't categorized).
-// This makes true per-account balances work automatically (see
-// buildDashboard in aggregate.ts), while
-// rangeStats/categoryBreakdown/entityBreakdown explicitly exclude
-// transfer_id IS NOT NULL rows so a transfer never shows up as real
-// income or expense in any report/widget.
+// Both legs count fully as real expense/income in every report/widget
+// (rangeStats/categoryBreakdown/entityBreakdown), same as any other
+// transaction — a transfer's source-account leg reduces that account's
+// expense total, its destination-account leg adds to that account's
+// income total. Category/payee breakdowns group transfer legs into a
+// synthetic "Transfer" bucket (TRANSFER_BUCKET_ID) instead of
+// "Uncategorized"/"No payee", since they have no real category or payee.
 async function checkMethodBelongsToAccount(
   env: Env,
   methodId: string | null,
