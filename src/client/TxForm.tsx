@@ -15,7 +15,7 @@ import {
   categoryRoots,
   categoryChildren,
 } from './lib';
-import { Field, SaveButton, Err, CategoryPicker } from './ui';
+import { Field, SaveButton, Err, CategoryPicker, AttachmentPreview } from './ui';
 import type { Category, PaymentMethod, Account, Payee, TxStatus, SplitRow } from '../shared/types';
 
 type SplitDraft = {
@@ -85,6 +85,9 @@ export function TxForm({
   const [existingAttach, setExistingAttach] = useState<AttachmentRow[]>([]);
   const [staged, setStaged] = useState<StagedFile[]>([]);
   const [attachBusy, setAttachBusy] = useState(false);
+  const [previewAttach, setPreviewAttach] = useState<{ url: string; fileName?: string } | null>(
+    null,
+  );
 
   useEffect(() => {
     if (!id) return;
@@ -738,9 +741,13 @@ export function TxForm({
               {existingAttach.map((a) => (
                 <div className="attachrow" key={a.id}>
                   {a.kind === 'image' ? (
-                    <a href={a.url} target="_blank" rel="noreferrer" className="attachthumb">
+                    <button
+                      type="button"
+                      className="attachthumb"
+                      onClick={() => setPreviewAttach({ url: a.url, fileName: a.file_name })}
+                    >
                       <img src={a.url} alt={a.file_name} />
-                    </a>
+                    </button>
                   ) : (
                     <span className="attachkind">📄</span>
                   )}
@@ -763,9 +770,13 @@ export function TxForm({
               {staged.map((s) => (
                 <div className="attachrow" key={s.key}>
                   {s.file.type.startsWith('image/') ? (
-                    <span className="attachthumb">
+                    <button
+                      type="button"
+                      className="attachthumb"
+                      onClick={() => setPreviewAttach({ url: s.dataUrl, fileName: s.file.name })}
+                    >
                       <img src={s.dataUrl} alt={s.file.name} />
-                    </span>
+                    </button>
                   ) : (
                     <span className="attachkind">📄</span>
                   )}
@@ -798,6 +809,14 @@ export function TxForm({
           </div>
         )}
       </div>
+
+      {previewAttach && (
+        <AttachmentPreview
+          url={previewAttach.url}
+          fileName={previewAttach.fileName}
+          onClose={() => setPreviewAttach(null)}
+        />
+      )}
 
       <div className="statusrow">
         <span>Status</span>

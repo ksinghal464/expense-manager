@@ -9,7 +9,7 @@ import {
   MAX_ATTACHMENT_BYTES,
   categoryDisplayName,
 } from './lib';
-import { Empty, Err, ConfirmDialog } from './ui';
+import { Empty, Err, ConfirmDialog, AttachmentPreview } from './ui';
 import { AuditBody } from './auditFormat';
 import type { AuditEntry } from '../shared/types';
 
@@ -320,6 +320,7 @@ function Attachments({
   onToast: (m: string) => Promise<void>;
 }) {
   const [busy, setBusy] = useState(false);
+  const [previewAttach, setPreviewAttach] = useState<AttachmentRow | null>(null);
 
   const onFile = async (f: File | null) => {
     if (!f) return;
@@ -352,9 +353,13 @@ function Attachments({
       {attach.map((a) => (
         <div className="attachrow" key={a.id}>
           {a.kind === 'image' ? (
-            <a href={a.url} target="_blank" rel="noreferrer" className="attachthumb">
+            <button
+              type="button"
+              className="attachthumb"
+              onClick={() => setPreviewAttach(a)}
+            >
               <img src={a.url} alt={a.file_name} />
-            </a>
+            </button>
           ) : (
             <span className="attachkind">📄</span>
           )}
@@ -381,6 +386,13 @@ function Attachments({
           />
         </label>
       </div>
+      {previewAttach && (
+        <AttachmentPreview
+          url={previewAttach.url}
+          fileName={previewAttach.file_name}
+          onClose={() => setPreviewAttach(null)}
+        />
+      )}
     </section>
   );
 }

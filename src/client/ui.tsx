@@ -45,6 +45,25 @@ export function ModalHead({
   );
 }
 
+export function AttachmentPreview({
+  url,
+  fileName,
+  onClose,
+}: {
+  url: string;
+  fileName?: string;
+  onClose: () => void;
+}) {
+  return (
+    <Overlay centered onClose={onClose}>
+      <ModalHead title={fileName || 'Attachment'} onClose={onClose} />
+      <div className="attachpreview">
+        <img src={url} alt={fileName || 'Attachment'} />
+      </div>
+    </Overlay>
+  );
+}
+
 export function Field({ label, children }: { label: string; children: React.ReactNode }) {
   return (
     <label className="field">

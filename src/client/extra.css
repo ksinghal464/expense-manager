@@ -437,6 +437,9 @@ input[type='file'] {
   overflow: hidden;
   display: block;
   background: #eef2f6;
+  border: 0;
+  padding: 0;
+  cursor: pointer;
 }
 .attachthumb img {
   width: 100%;
@@ -446,6 +449,17 @@ input[type='file'] {
 }
 .attachkind {
   font-size: 16px;
+}
+.attachpreview {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.attachpreview img {
+  max-width: 100%;
+  max-height: 80vh;
+  border-radius: 12px;
+  display: block;
 }
 .attachrow a {
   flex: 1;
