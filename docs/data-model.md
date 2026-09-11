@@ -54,18 +54,21 @@ A transfer moves money between two of the user's own accounts. It is the
 source of truth for amount/date/description/note, and is paired with two
 linked `transactions` rows sharing its id via `transaction_id.transfer_id`:
 an `expense` leg on `from_account_id` and an `income` leg on
-`to_account_id`, both with null category/payment method/payee. This makes
-true per-account balances work with no special-casing (money leaves one
-account, arrives in the other, like any other expense/income row), while
+`to_account_id`, each optionally with its own payment method (validated to
+belong to its account) but no category/payee — a transfer isn't
+categorized. This makes true per-account balances work with no
+special-casing (money leaves one account, arrives in the other, like any
+other expense/income row), while
 `rangeStats`/`categoryBreakdown`/`entityBreakdown` explicitly exclude
 `transfer_id IS NOT NULL` rows so a transfer never shows up as income or
 expense in any report/widget — it is not income or expense.
 
 Created via `POST /api/transfers`, edited via `PUT /api/transfers/:id`
-(amount/date/description/note only — the from/to accounts are fixed once
-created). Deleting/restoring/purging either linked transaction cascades to
-its sibling leg and the `transfers` row, so a transfer always appears or
-disappears as a single unit (see `deleteTransaction`/`restoreTransaction`
+(amount/date/description/note/payment methods — the from/to accounts
+themselves are fixed once created). Deleting/restoring/purging either
+linked transaction cascades to its sibling leg and the `transfers` row, so
+a transfer always appears or disappears as a single unit (see
+`deleteTransaction`/`restoreTransaction`
 in `src/worker/routes.ts`). A transfer's expense leg cannot be refunded.
 
 ### recurring_rules

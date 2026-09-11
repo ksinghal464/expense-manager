@@ -88,6 +88,8 @@ export interface TxView extends TxRow {
   refund_siblings_total?: number;
   transfer_counterpart_account_id?: string | null;
   transfer_counterpart_account_name?: string | null;
+  transfer_counterpart_method_id?: string | null;
+  transfer_counterpart_method_name?: string | null;
   transfer_description?: string | null;
   tags?: string[];
   splits?: SplitRow[];

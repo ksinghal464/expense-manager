@@ -65,6 +65,7 @@ export function TxForm({
   const [type, setType] = useState<FormType>('expense');
   const [accountId, setAccountId] = useState('');
   const [toAccountId, setToAccountId] = useState('');
+  const [toMethodId, setToMethodId] = useState('');
   const [transferId, setTransferId] = useState<string | null>(null);
   const [categoryId, setCategoryId] = useState('');
   const [methodId, setMethodId] = useState('');
@@ -92,24 +93,29 @@ export function TxForm({
       .then((t: TxDetail) => {
         if (t.transfer_id) {
           // A transfer-linked leg: switch the form into transfer mode and
-          // derive the from/to accounts from which side of the transfer
-          // this particular leg is (see PUT /api/transfers/:id — accounts
-          // aren't editable after creation, only amount/date/description/note).
+          // derive the from/to accounts and payment methods from which side
+          // of the transfer this particular leg is (see PUT
+          // /api/transfers/:id — accounts aren't editable after creation,
+          // only amount/date/description/note/payment methods).
           setType('transfer');
           setTransferId(t.transfer_id);
           if (t.transaction_type === 'expense') {
             setAccountId(t.account_id);
             setToAccountId(t.transfer_counterpart_account_id || '');
+            setMethodId(t.payment_method_id || '');
+            setToMethodId(t.transfer_counterpart_method_id || '');
           } else {
             setAccountId(t.transfer_counterpart_account_id || '');
             setToAccountId(t.account_id);
+            setMethodId(t.transfer_counterpart_method_id || '');
+            setToMethodId(t.payment_method_id || '');
           }
         } else {
           setType(t.transaction_type);
           setAccountId(t.account_id);
+          setMethodId(t.payment_method_id || '');
         }
         setCategoryId(t.category_id || '');
-        setMethodId(t.payment_method_id || '');
         setAmount(toInput(t.amount_minor));
         setDate(toLocalInput(t.occurred_at));
         // A transfer leg's own `description` is auto-generated per direction
@@ -171,6 +177,14 @@ export function TxForm({
     if (!accountMethods.some((m) => m.id === methodId)) setMethodId('');
   }, [accountId, accountMethods]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  const toAccountMethods = useMemo(
+    () => methods.filter((m) => m.account_id === toAccountId),
+    [methods, toAccountId]
+  );
+  useEffect(() => {
+    if (!toAccountMethods.some((m) => m.id === toMethodId)) setToMethodId('');
+  }, [toAccountId, toAccountMethods]); // eslint-disable-line react-hooks/exhaustive-deps
+
   const cats = useMemo(
     () =>
       type === 'transfer' ? [] : categories.filter((c) => c.kind === 'both' || c.kind === type),
@@ -223,6 +237,8 @@ export function TxForm({
         const transferPayload = {
           fromAccountId: accountId,
           toAccountId,
+          fromMethodId: methodId || null,
+          toMethodId: toMethodId || null,
           amount: minor / 100,
           occurredAt: toIso(date),
           description,
@@ -428,6 +444,34 @@ export function TxForm({
                     {a.name}
                   </option>
                 ))}
+            </select>
+          </Field>
+          <Field label="From payment method">
+            <select
+              value={methodId}
+              disabled={!accountId}
+              onChange={(e) => setMethodId(e.target.value)}
+            >
+              <option value="">{!accountId ? 'Select from account first' : 'None'}</option>
+              {accountMethods.map((m: PaymentMethod) => (
+                <option key={m.id} value={m.id}>
+                  {m.name}
+                </option>
+              ))}
+            </select>
+          </Field>
+          <Field label="To payment method">
+            <select
+              value={toMethodId}
+              disabled={!toAccountId}
+              onChange={(e) => setToMethodId(e.target.value)}
+            >
+              <option value="">{!toAccountId ? 'Select to account first' : 'None'}</option>
+              {toAccountMethods.map((m: PaymentMethod) => (
+                <option key={m.id} value={m.id}>
+                  {m.name}
+                </option>
+              ))}
             </select>
           </Field>
         </div>

@@ -41,6 +41,8 @@ const TX_SELECT = `SELECT t.*, a.name AS account_name, c.name AS category_name, 
   pm.name AS payment_method_name, parent.description AS refund_of_description,
   parent.occurred_at AS refund_of_occurred_at, parent.amount_minor AS refund_of_amount_minor,
   cp.account_id AS transfer_counterpart_account_id, cpacc.name AS transfer_counterpart_account_name,
+  cp.payment_method_id AS transfer_counterpart_method_id,
+  cppm.name AS transfer_counterpart_method_name,
   xfer.description AS transfer_description,
   (SELECT COALESCE(SUM(r.amount_minor),0) FROM transactions r
     WHERE r.refunds_transaction_id=t.id AND r.deleted_at IS NULL) AS refunded_minor,
@@ -54,6 +56,7 @@ const TX_SELECT = `SELECT t.*, a.name AS account_name, c.name AS category_name, 
   LEFT JOIN transactions parent ON parent.id=t.refunds_transaction_id
   LEFT JOIN transactions cp ON cp.transfer_id=t.transfer_id AND cp.id<>t.id AND cp.deleted_at IS NULL
   LEFT JOIN accounts cpacc ON cpacc.id=cp.account_id
+  LEFT JOIN payment_methods cppm ON cppm.id=cp.payment_method_id
   LEFT JOIN transfers xfer ON xfer.id=t.transfer_id`;
 
 function str(b: Record<string, unknown>, k: string): string {
@@ -691,12 +694,29 @@ async function purgeAllTrash(env: Env): Promise<{ purged: number }> {
 // stored as one `transfers` row (the source of truth for amount/date/
 // description/note) plus two linked `transactions` rows sharing that
 // transfer's id via `transfer_id`: an 'expense' leg on the source account
-// and an 'income' leg on the destination account. Both legs carry no
-// category/payment method/payee. This makes true per-account balances
-// work automatically (see buildDashboard in aggregate.ts), while
+// and an 'income' leg on the destination account, each optionally with its
+// own payment method (no category/payee — a transfer isn't categorized).
+// This makes true per-account balances work automatically (see
+// buildDashboard in aggregate.ts), while
 // rangeStats/categoryBreakdown/entityBreakdown explicitly exclude
 // transfer_id IS NOT NULL rows so a transfer never shows up as real
 // income or expense in any report/widget.
+async function checkMethodBelongsToAccount(
+  env: Env,
+  methodId: string | null,
+  accountId: string
+): Promise<void> {
+  if (!methodId) return;
+  const pm = await env.DB.prepare(
+    'SELECT account_id FROM payment_methods WHERE id=? AND deleted_at IS NULL'
+  )
+    .bind(methodId)
+    .first<Row>();
+  if (!pm) throw new HttpError(400, 'Payment method not found');
+  if (pm.account_id !== accountId)
+    throw new HttpError(400, 'Payment method does not belong to the selected account');
+}
+
 async function createTransfer(env: Env, request: Request): Promise<Response> {
   const b = await readJson(request);
   const at = now();
@@ -718,6 +738,13 @@ async function createTransfer(env: Env, request: Request): Promise<Response> {
   ]);
   if (!fromAcc) throw new HttpError(400, 'From account not found');
   if (!toAcc) throw new HttpError(400, 'To account not found');
+
+  const fromMethodId = optStr(b, 'fromMethodId');
+  const toMethodId = optStr(b, 'toMethodId');
+  await Promise.all([
+    checkMethodBelongsToAccount(env, fromMethodId, fromAccountId),
+    checkMethodBelongsToAccount(env, toMethodId, toAccountId),
+  ]);
 
   const status = STATUS_RE.test(str(b, 'status')) ? str(b, 'status') : 'cleared';
   const note = str(b, 'note');
@@ -760,10 +787,11 @@ async function createTransfer(env: Env, request: Request): Promise<Response> {
       `INSERT INTO transactions
         (id,account_id,payment_method_id,category_id,payee_id,transaction_type,amount_minor,occurred_at,
          description,note,status,transfer_id,is_split_parent,created_at,updated_at)
-       VALUES (?,?,NULL,NULL,NULL,'expense',?,?,?,?,?,?,0,?,?)`
+       VALUES (?,?,?,NULL,NULL,'expense',?,?,?,?,?,?,0,?,?)`
     ).bind(
       outId,
       fromAccountId,
+      fromMethodId,
       amountMinor,
       occurredAt,
       outDescription,
@@ -777,10 +805,11 @@ async function createTransfer(env: Env, request: Request): Promise<Response> {
       `INSERT INTO transactions
         (id,account_id,payment_method_id,category_id,payee_id,transaction_type,amount_minor,occurred_at,
          description,note,status,transfer_id,is_split_parent,created_at,updated_at)
-       VALUES (?,?,NULL,NULL,NULL,'income',?,?,?,?,?,?,0,?,?)`
+       VALUES (?,?,?,NULL,NULL,'income',?,?,?,?,?,?,0,?,?)`
     ).bind(
       inId,
       toAccountId,
+      toMethodId,
       amountMinor,
       occurredAt,
       inDescription,
@@ -824,6 +853,14 @@ async function updateTransfer(env: Env, request: Request, transferId: string): P
   const status = STATUS_RE.test(str(b, 'status')) ? str(b, 'status') : outLeg.status;
   const customDescription =
     b['description'] !== undefined ? String(b['description']) : before.description;
+  const fromMethodId =
+    b['fromMethodId'] !== undefined ? optStr(b, 'fromMethodId') : outLeg.payment_method_id;
+  const toMethodId =
+    b['toMethodId'] !== undefined ? optStr(b, 'toMethodId') : inLeg.payment_method_id;
+  await Promise.all([
+    checkMethodBelongsToAccount(env, fromMethodId, before.from_account_id),
+    checkMethodBelongsToAccount(env, toMethodId, before.to_account_id),
+  ]);
 
   const [fromAcc, toAcc] = await Promise.all([
     env.DB.prepare('SELECT name FROM accounts WHERE id=?')
@@ -839,11 +876,11 @@ async function updateTransfer(env: Env, request: Request, transferId: string): P
       'UPDATE transfers SET amount_minor=?, occurred_at=?, description=?, note=?, updated_at=? WHERE id=?'
     ).bind(amountMinor, occurredAt, customDescription, note, at, transferId),
     env.DB.prepare(
-      'UPDATE transactions SET amount_minor=?, occurred_at=?, description=?, note=?, status=?, updated_at=? WHERE id=?'
-    ).bind(amountMinor, occurredAt, outDescription, note, status, at, outLeg.id),
+      'UPDATE transactions SET amount_minor=?, occurred_at=?, description=?, note=?, status=?, payment_method_id=?, updated_at=? WHERE id=?'
+    ).bind(amountMinor, occurredAt, outDescription, note, status, fromMethodId, at, outLeg.id),
     env.DB.prepare(
-      'UPDATE transactions SET amount_minor=?, occurred_at=?, description=?, note=?, status=?, updated_at=? WHERE id=?'
-    ).bind(amountMinor, occurredAt, inDescription, note, status, at, inLeg.id),
+      'UPDATE transactions SET amount_minor=?, occurred_at=?, description=?, note=?, status=?, payment_method_id=?, updated_at=? WHERE id=?'
+    ).bind(amountMinor, occurredAt, inDescription, note, status, toMethodId, at, inLeg.id),
   ]);
 
   await audit(env, 'transfer', transferId, 'update', before, {

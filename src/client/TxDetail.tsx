@@ -94,10 +94,17 @@ export function TxDetail({
         <Detail label="Date & time" value={fmtDateTime(tx.occurred_at)} />
         <Detail label="Account" value={tx.account_name} />
         {isTransfer ? (
-          <Detail
-            label={tx.transaction_type === 'income' ? 'From account' : 'To account'}
-            value={tx.transfer_counterpart_account_name || '—'}
-          />
+          <>
+            <Detail
+              label={tx.transaction_type === 'income' ? 'From account' : 'To account'}
+              value={tx.transfer_counterpart_account_name || '—'}
+            />
+            <Detail label="Payment method" value={tx.payment_method_name || '—'} />
+            <Detail
+              label={tx.transaction_type === 'income' ? 'From method' : 'To method'}
+              value={tx.transfer_counterpart_method_name || '—'}
+            />
+          </>
         ) : (
           <>
             <Detail label="Payment method" value={tx.payment_method_name || '—'} />
