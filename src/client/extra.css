@@ -1,6 +1,14 @@
 /* ============ extra.css — styles for the rebuilt client ============ */
 
 /* --- app shell --- */
+.list-pagination {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  gap: 16px;
+  padding: 16px 0;
+}
+
 .appbar {
   align-items: center;
   margin-bottom: 20px;

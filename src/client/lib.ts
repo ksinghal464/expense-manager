@@ -17,26 +17,28 @@ function istDate(iso: string): Date {
   return new Date(t.getTime() + IST_OFFSET_MS);
 }
 
+const dateFormatter = new Intl.DateTimeFormat('en-IN', {
+  timeZone: 'UTC',
+  day: 'numeric',
+  month: 'short',
+  year: 'numeric',
+});
+
 export function fmtDate(iso: string): string {
-  const d = istDate(iso);
-  return d.toLocaleDateString('en-IN', {
-    timeZone: 'UTC',
-    day: 'numeric',
-    month: 'short',
-    year: 'numeric',
-  });
+  return dateFormatter.format(istDate(iso));
 }
 
+const dateTimeFormatter = new Intl.DateTimeFormat('en-IN', {
+  timeZone: 'UTC',
+  day: 'numeric',
+  month: 'short',
+  year: 'numeric',
+  hour: '2-digit',
+  minute: '2-digit',
+});
+
 export function fmtDateTime(iso: string): string {
-  const d = istDate(iso);
-  return d.toLocaleString('en-IN', {
-    timeZone: 'UTC',
-    day: 'numeric',
-    month: 'short',
-    year: 'numeric',
-    hour: '2-digit',
-    minute: '2-digit',
-  });
+  return dateTimeFormatter.format(istDate(iso));
 }
 
 /** Current time as a datetime-local value (browser local; best default for a form). */

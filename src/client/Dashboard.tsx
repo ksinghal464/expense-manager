@@ -4,10 +4,10 @@ import type { ActivityFilter } from './store';
 import { api } from './api';
 import { money, categoryDisplayName, groupCategoryTotals } from './lib';
 import type { CategoryGroup } from './lib';
-import { Empty } from './ui';
+import { Empty, Err } from './ui';
 import { TxRow } from './TxRow';
 import { periodStart, PERIOD_PRESETS } from '../shared/period';
-import type { CategoryTotal } from '../shared/types';
+import type { CategoryTotal, Dashboard as DashboardData } from '../shared/types';
 
 type FrameData = {
   label: string;
@@ -84,6 +84,7 @@ function BreakdownCard({
   onRemove,
   hideBalance,
   group,
+  dashboard,
 }: {
   title: string;
   emptyNoun: string;
@@ -93,7 +94,8 @@ function BreakdownCard({
     from: string,
     to: string | null,
     accountId: string | undefined,
-    type: 'expense' | 'income'
+    type: 'expense' | 'income',
+    signal?: AbortSignal
   ) => Promise<CategoryTotal[]>;
   buildFilter: (
     item: CategoryTotal,
@@ -107,11 +109,15 @@ function BreakdownCard({
   hideBalance?: boolean;
   /** Group flat rows into expandable parent/child rows (category card). */
   group?: (rows: CategoryTotal[]) => CategoryGroup[];
+  dashboard: DashboardData | null;
 }) {
   const { openActivity } = useStore();
   const [key, setKey] = useState<string>('month');
   const [type, setType] = useState<BreakdownType>('expense');
   const [data, setData] = useState<CategoryTotal[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
+  const [attempt, setAttempt] = useState(0);
   const [expanded, setExpanded] = useState<Set<string>>(() => new Set());
   const groups = useMemo(() => (group ? group(data) : null), [group, data]);
   const toggleExpanded = (k: string) =>
@@ -134,20 +140,29 @@ function BreakdownCard({
   const to = isCustom && customFrom ? dateInputToExclusiveEndIso(customTo) : null;
 
   useEffect(() => {
-    if (isCustom && !customFrom) return; // custom picked but no date chosen yet
-    let cancelled = false;
+    if (!dashboard || (isCustom && !customFrom)) return;
+    const controller = new AbortController();
+    setLoading(true);
+    setError('');
     (async () => {
-      const rows =
-        type === 'balance'
-          ? await mergeBalance(fetcher, from, to, accountFilter || undefined)
-          : await fetcher(from, to, accountFilter || undefined, type).catch(() => []);
-      if (!cancelled) setData(rows);
+      try {
+        const rows =
+          group && key === 'month' && type === 'expense' && !accountFilter
+            ? dashboard.categories
+            : type === 'balance'
+              ? await mergeBalance(fetcher, from, to, accountFilter || undefined, controller.signal)
+              : await fetcher(from, to, accountFilter || undefined, type, controller.signal);
+        if (!controller.signal.aborted) setData(rows);
+      } catch (e) {
+        if (!controller.signal.aborted)
+          setError(e instanceof Error ? e.message : 'Unable to load breakdown');
+      } finally {
+        if (!controller.signal.aborted) setLoading(false);
+      }
     })();
-    return () => {
-      cancelled = true;
-    };
+    return () => controller.abort();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [from, to, type, accountFilter]);
+  }, [from, to, type, accountFilter, dashboard, attempt]);
 
   const max = Math.max(
     ...(groups
@@ -274,7 +289,18 @@ function BreakdownCard({
           <input type="date" value={customTo} onChange={(e) => setCustomTo(e.target.value)} />
         </div>
       )}
-      {data.length ? (
+      {loading ? (
+        <div className="loading" role="status">
+          Loading…
+        </div>
+      ) : error ? (
+        <div>
+          <Err msg={error} />
+          <button className="outline" onClick={() => setAttempt((n) => n + 1)}>
+            Retry
+          </button>
+        </div>
+      ) : data.length ? (
         <div className="bars">
           {groups
             ? groups.flatMap((g) => {
@@ -310,15 +336,17 @@ async function mergeBalance(
     from: string,
     to: string | null,
     accountId: string | undefined,
-    type: 'expense' | 'income'
+    type: 'expense' | 'income',
+    signal?: AbortSignal
   ) => Promise<CategoryTotal[]>,
   from: string,
   to: string | null,
-  accountId: string | undefined
+  accountId: string | undefined,
+  signal?: AbortSignal
 ): Promise<CategoryTotal[]> {
   const [expenseRows, incomeRows] = await Promise.all([
-    fetcher(from, to, accountId, 'expense').catch(() => []),
-    fetcher(from, to, accountId, 'income').catch(() => []),
+    fetcher(from, to, accountId, 'expense', signal),
+    fetcher(from, to, accountId, 'income', signal),
   ]);
   const map = new Map<string, CategoryTotal>();
   const keyOf = (r: CategoryTotal) => r.id ?? `name:${r.name}`;
@@ -338,7 +366,25 @@ async function mergeBalance(
 }
 
 export function Dashboard() {
-  const { dash, accounts, categories, transactions, go, open, openActivity } = useStore();
+  const { accounts, categories, transactions, go, open, openActivity } = useStore();
+  const [dash, setDash] = useState<DashboardData | null>(null);
+  const [loadError, setLoadError] = useState('');
+  const [attempt, setAttempt] = useState(0);
+  useEffect(() => {
+    const controller = new AbortController();
+    setDash(null);
+    setLoadError('');
+    api
+      .dashboard(controller.signal)
+      .then((data) => {
+        if (!controller.signal.aborted) setDash(data);
+      })
+      .catch((e) => {
+        if (!controller.signal.aborted)
+          setLoadError(e instanceof Error ? e.message : 'Unable to load dashboard');
+      });
+    return () => controller.abort();
+  }, [transactions, attempt]);
   const persisted = useMemo(() => loadPersisted(), []);
   const groupByCategory = useMemo(
     () => (rows: CategoryTotal[]) => groupCategoryTotals(rows, categories),
@@ -355,7 +401,9 @@ export function Dashboard() {
   const [customWidgets, setCustomWidgets] = useState<CustomWidget[]>(
     persisted?.customWidgets ?? []
   );
-  const [frameCache, setFrameCache] = useState<Record<string, FrameData>>({});
+  const [frames, setFrames] = useState<Record<string, FrameData>>({});
+  const [framesLoading, setFramesLoading] = useState(true);
+  const [frameError, setFrameError] = useState('');
   const [customFrom, setCustomFrom] = useState('');
   const [customTo, setCustomTo] = useState(todayInputValue());
   const [showCustom, setShowCustom] = useState(false);
@@ -370,38 +418,49 @@ export function Dashboard() {
     savePersisted({ accountFilter, activeKeys, customWidgets, activeBreakdowns });
   }, [accountFilter, activeKeys, customWidgets, activeBreakdowns]);
 
-  // Seed from the bootstrap dashboard payload (all-accounts) so the default
-  // widgets aren't empty for an instant before the scoped fetch resolves.
+  // Reuse the current response for default frames; fetch independent extras in parallel.
   useEffect(() => {
-    if (accountFilter) return;
-    const seed: Record<string, FrameData> = {};
-    for (const f of dash?.frames || []) seed[f.key] = f;
-    setFrameCache((cur) => ({ ...seed, ...cur }));
-  }, [dash]); // eslint-disable-line react-hooks/exhaustive-deps
-
-  // Re-fetch every active widget whenever the account scope, the active set,
-  // or a custom range changes.
-  useEffect(() => {
-    let cancelled = false;
+    if (!dash) return;
+    const controller = new AbortController();
+    setFramesLoading(true);
+    setFrameError('');
     (async () => {
-      for (const key of activeKeys) {
-        const preset = PERIOD_PRESETS.find((p) => p.key === key);
-        const cw = !preset ? customWidgets.find((c) => c.key === key) : null;
-        if (!preset && !cw) continue;
-        const from = preset ? preset.from(Date.now()) : cw!.from;
-        const to = preset ? null : cw!.to;
-        const label = preset ? preset.label : cw!.label;
-        const stats = await api
-          .dashboardFrame(from, to, accountFilter || undefined)
-          .catch(() => null);
-        if (cancelled) return;
-        if (stats) setFrameCache((cur) => ({ ...cur, [key]: { label, from, to, ...stats } }));
+      try {
+        const entries = await Promise.all(
+          activeKeys.map(async (key): Promise<[string, FrameData] | null> => {
+            const seeded = !accountFilter && dash.frames.find((f) => f.key === key);
+            if (seeded) return [key, seeded];
+            const preset = PERIOD_PRESETS.find((p) => p.key === key);
+            const cw = !preset ? customWidgets.find((c) => c.key === key) : null;
+            if (!preset && !cw) return null;
+            const from = preset ? preset.from(Date.now()) : cw!.from;
+            const to = preset ? null : cw!.to;
+            const label = preset ? preset.label : cw!.label;
+            const stats = await api.dashboardFrame(
+              from,
+              to,
+              accountFilter || undefined,
+              controller.signal
+            );
+            return [key, { label, from, to, ...stats }];
+          })
+        );
+        if (!controller.signal.aborted)
+          setFrames(Object.fromEntries(entries.filter((entry) => entry !== null)));
+      } catch (e) {
+        if (!controller.signal.aborted)
+          setFrameError(e instanceof Error ? e.message : 'Unable to load totals');
+      } finally {
+        if (!controller.signal.aborted) setFramesLoading(false);
       }
     })();
-    return () => {
-      cancelled = true;
-    };
-  }, [accountFilter, activeKeys, customWidgets]);
+    return () => controller.abort();
+  }, [accountFilter, activeKeys, customWidgets, dash]);
+
+  const selectAccount = (value: string) => {
+    setFramesLoading(true);
+    setAccountFilter(value);
+  };
 
   const addWidget = (key: string) => {
     if (!activeKeys.includes(key)) setActiveKeys((cur) => [...cur, key]);
@@ -435,11 +494,29 @@ export function Dashboard() {
     method: { title: 'By payment method', emptyNoun: 'payment method' },
   };
 
+  if (loadError)
+    return (
+      <main>
+        <Err msg={loadError} />
+        <button className="outline" onClick={() => setAttempt((n) => n + 1)}>
+          Retry
+        </button>
+      </main>
+    );
+  if (!dash)
+    return (
+      <main>
+        <div className="loading" role="status">
+          Loading dashboard…
+        </div>
+      </main>
+    );
+
   return (
     <main>
       <div className="accountscope">
         <span>Viewing</span>
-        <select value={accountFilter} onChange={(e) => setAccountFilter(e.target.value)}>
+        <select value={accountFilter} onChange={(e) => selectAccount(e.target.value)}>
           <option value="">All accounts</option>
           {accounts.map((a) => (
             <option key={a.id} value={a.id}>
@@ -450,8 +527,21 @@ export function Dashboard() {
       </div>
 
       <div className="framegrid">
+        {framesLoading && (
+          <div className="loading" role="status">
+            Loading totals…
+          </div>
+        )}
+        {frameError && (
+          <div>
+            <Err msg={frameError} />
+            <button className="outline" onClick={() => setAttempt((n) => n + 1)}>
+              Retry
+            </button>
+          </div>
+        )}
         {activeKeys.map((key) => {
-          const f = frameCache[key];
+          const f = !framesLoading && !frameError ? frames[key] : null;
           if (!f) return null;
           // Refunds are netted directly against expense (see rangeStats in
           // aggregate.ts), so no separate add-back is needed here.
@@ -559,11 +649,12 @@ export function Dashboard() {
       ) : null}
 
       <BreakdownCard
+        dashboard={dash}
         title="By category"
         emptyNoun="category"
         accountFilter={accountFilter}
         accountLabel={accountLabel}
-        fetcher={(from, to, acct, type) => api.dashboardCategories(from, to, acct, type)}
+        fetcher={api.dashboardCategories}
         hideBalance
         group={groupByCategory}
         buildFilter={(c, from, to, type, opts) => {
@@ -585,12 +676,15 @@ export function Dashboard() {
 
       {activeBreakdowns.map((dim) => (
         <BreakdownCard
+          dashboard={dash}
           key={dim}
           title={BREAKDOWN_DEFS[dim].title}
           emptyNoun={BREAKDOWN_DEFS[dim].emptyNoun}
           accountFilter={accountFilter}
           accountLabel={accountLabel}
-          fetcher={(from, to, acct, type) => api.dashboardBreakdown(dim, from, to, acct, type)}
+          fetcher={(from, to, acct, type, signal) =>
+            api.dashboardBreakdown(dim, from, to, acct, type, signal)
+          }
           buildFilter={(c, from, to, type) => ({
             methodId: c.id || undefined,
             type,

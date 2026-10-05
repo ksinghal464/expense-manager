@@ -1,4 +1,5 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useState } from 'react';
+import { useFreshPage } from './useFreshPage';
 import { api } from './api';
 import { useStore } from './store';
 import {
@@ -564,21 +565,10 @@ function DataTab() {
 
 // ---------------- Trash ----------------
 function TrashTab() {
-  const { open, categories, refresh, toast } = useStore();
-  const [items, setItems] = useState<TxView[]>([]);
+  const { open, categories, refresh, toast, transactions } = useStore();
+  const page = useFreshPage(api.trash, trashCursor, transactions);
+  const items = page.rows;
   const [confirming, setConfirming] = useState(false);
-
-  const loadTrash = async () => {
-    try {
-      return await api.trash();
-    } catch {
-      return [] as TxView[];
-    }
-  };
-  const reload = useCallback(async () => setItems(await loadTrash()), []);
-  useEffect(() => {
-    reload();
-  }, [reload]);
 
   return (
     <section className="card manager">
@@ -596,18 +586,19 @@ function TrashTab() {
       {confirming && (
         <ConfirmDialog
           title="Empty trash?"
-          message={`Permanently delete all ${items.length} item${items.length === 1 ? '' : 's'} in Trash? This cannot be undone.`}
+          message="Permanently delete all transactions in Trash, including those on other pages? This cannot be undone."
           confirmLabel="Empty trash"
           busyLabel="Emptying…"
           onConfirm={async () => {
             await api.purgeTrash();
-            await reload();
+            page.reload();
             refresh();
             toast('Trash emptied');
           }}
           close={() => setConfirming(false)}
         />
       )}
+      <PageStatus page={page} />
       {items.map((t) => (
         <TxRow
           key={t.id}
@@ -616,24 +607,17 @@ function TrashTab() {
           onClick={() => open({ kind: 'detail', id: t.id, fromTrash: true })}
         />
       ))}
-      {!items.length && <Empty text="Trash is empty." />}
+      {!page.loading && !page.error && !items.length && <Empty text="Trash is empty." />}
+      <PageNavigation page={page} />
     </section>
   );
 }
 
 // ---------------- Audit ----------------
 function AuditTab() {
-  const { accounts, categories, methods, payees, open } = useStore();
-  const [rows, setRows] = useState<AuditEntry[]>([]);
-  const [err, setErr] = useState('');
-  const [limit, setLimit] = useState(200);
-
-  useEffect(() => {
-    api
-      .audit()
-      .then(setRows)
-      .catch((e) => setErr(e instanceof Error ? e.message : 'Unable to load audit'));
-  }, []);
+  const { accounts, categories, methods, payees, open, transactions } = useStore();
+  const page = useFreshPage(api.audit, auditCursor, transactions);
+  const [expanded, setExpanded] = useState<string | null>(null);
 
   return (
     <section className="card manager">
@@ -643,8 +627,8 @@ function AuditTab() {
           <p>Every change to your data, newest first.</p>
         </div>
       </div>
-      {err && <Err msg={err} />}
-      {rows.slice(0, limit).map((a) => {
+      <PageStatus page={page} />
+      {page.rows.map((a) => {
         const isTx = a.entity_type === 'transaction';
         const snap = isTx ? parseJson(a.after_json) || parseJson(a.before_json) : null;
         return (
@@ -682,22 +666,82 @@ function AuditTab() {
                   <b>View →</b>
                 </button>
               )}
-              <AuditBody
-                action={a.action}
-                before={a.before_json}
-                after={a.after_json}
-                lookups={{ accounts, categories, methods, payees }}
-              />
+              <button
+                className="link"
+                aria-expanded={expanded === a.id}
+                onClick={() => setExpanded(expanded === a.id ? null : a.id)}
+              >
+                {expanded === a.id ? 'Hide details' : 'Show details'}
+              </button>
+              {expanded === a.id && (
+                <AuditBody
+                  action={a.action}
+                  before={a.before_json}
+                  after={a.after_json}
+                  lookups={{ accounts, categories, methods, payees }}
+                />
+              )}
             </div>
           </div>
         );
       })}
-      {!err && !rows.length && <Empty text="No audit events yet." />}
-      {rows.length > limit && (
-        <button className="link" onClick={() => setLimit((l) => l + 200)}>
-          Show more
-        </button>
-      )}
+      {!page.loading && !page.error && !page.rows.length && <Empty text="No audit events yet." />}
+      <PageNavigation page={page} />
     </section>
+  );
+}
+
+function trashCursor(row: TxView) {
+  return { before: row.occurred_at, beforeCreated: row.created_at, beforeId: row.id };
+}
+
+function auditCursor(row: AuditEntry) {
+  return { before: row.occurred_at, beforeId: row.id };
+}
+
+type PageState = {
+  loading: boolean;
+  error: string;
+  page: number;
+  hasNext: boolean;
+  retry: () => void;
+  previous: () => void;
+  next: () => void;
+};
+
+function PageStatus({ page }: { page: PageState }) {
+  if (page.loading)
+    return (
+      <div className="loading" role="status">
+        Loading…
+      </div>
+    );
+  if (!page.error) return null;
+  return (
+    <div>
+      <Err msg={page.error} />
+      <button className="outline" onClick={page.retry}>
+        Retry
+      </button>
+    </div>
+  );
+}
+
+function PageNavigation({ page }: { page: PageState }) {
+  if (page.page === 1 && !page.hasNext) return null;
+  return (
+    <div className="list-pagination" role="navigation" aria-label="List pages">
+      <button
+        className="outline"
+        disabled={page.loading || page.page === 1}
+        onClick={page.previous}
+      >
+        Previous
+      </button>
+      <span>Page {page.page}</span>
+      <button className="outline" disabled={page.loading || !page.hasNext} onClick={page.next}>
+        Next
+      </button>
+    </div>
   );
 }

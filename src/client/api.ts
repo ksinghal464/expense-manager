@@ -76,20 +76,27 @@ export const api = {
   login: (password: string) => post<{ ok: boolean }>('/api/login', { password }),
   logout: () => post<{ ok: boolean }>('/api/logout', {}),
   bootstrap: () => req<Bootstrap>('/api/bootstrap'),
-  dashboard: () => req<Dashboard>('/api/dashboard'),
-  dashboardFrame: (from: string, to?: string | null, accountId?: string | null) =>
+  dashboard: (signal?: AbortSignal) => req<Dashboard>('/api/dashboard', { signal }),
+  dashboardFrame: (
+    from: string,
+    to?: string | null,
+    accountId?: string | null,
+    signal?: AbortSignal
+  ) =>
     req<{ income: number; expense: number; refunded: number }>(
       `/api/dashboard/frame?${new URLSearchParams({
         from,
         ...(to ? { to } : {}),
         ...(accountId ? { accountId } : {}),
-      })}`
+      })}`,
+      { signal }
     ),
   dashboardCategories: (
     from: string,
     to?: string | null,
     accountId?: string | null,
-    type?: 'expense' | 'income'
+    type?: 'expense' | 'income',
+    signal?: AbortSignal
   ) =>
     req<{ id: string | null; name: string; total: number }[]>(
       `/api/dashboard/categories?${new URLSearchParams({
@@ -97,14 +104,16 @@ export const api = {
         ...(to ? { to } : {}),
         ...(accountId ? { accountId } : {}),
         ...(type ? { type } : {}),
-      })}`
+      })}`,
+      { signal }
     ),
   dashboardBreakdown: (
     by: 'method' | 'payee',
     from: string,
     to?: string | null,
     accountId?: string | null,
-    type?: 'expense' | 'income'
+    type?: 'expense' | 'income',
+    signal?: AbortSignal
   ) =>
     req<{ id: string | null; name: string; total: number }[]>(
       `/api/dashboard/breakdown?${new URLSearchParams({
@@ -113,7 +122,8 @@ export const api = {
         ...(to ? { to } : {}),
         ...(accountId ? { accountId } : {}),
         ...(type ? { type } : {}),
-      })}`
+      })}`,
+      { signal }
     ),
   searchOptions: (q: string) =>
     req<SearchOptions>(`/api/search-options?q=${encodeURIComponent(q)}`),
@@ -136,7 +146,8 @@ export const api = {
     req<{ ok: boolean }>(`/api/transactions/${id}${hard ? '?hard=1' : ''}`, { method: 'DELETE' }),
   restoreTransaction: (id: string) => post(`/api/transactions/${id}/restore`, {}),
   purgeTransaction: (id: string) => post(`/api/transactions/${id}/purge`, {}),
-  trash: () => req<TxView[]>('/api/trash'),
+  trash: (qs?: Record<string, string>, signal?: AbortSignal) =>
+    req<TxView[]>(`/api/trash?${new URLSearchParams(qs)}`, { signal }),
   purgeTrash: () => post('/api/trash/purge', {}),
 
   createTransfer: (body: Record<string, unknown>) =>
@@ -180,7 +191,7 @@ export const api = {
   createAttachment: (body: Record<string, unknown>) => post('/api/attachments', body),
   deleteAttachment: (id: string) => req(`/api/attachments/${id}`, { method: 'DELETE' }),
 
-  recurring: () => req<RecurringRule[]>('/api/recurring'),
+  recurring: (signal?: AbortSignal) => req<RecurringRule[]>('/api/recurring', { signal }),
   saveRecurring: (id: string | null, body: Record<string, unknown>) =>
     id ? put(`/api/recurring/${id}`, body) : post('/api/recurring', body),
   deleteRecurring: (id: string) => req(`/api/recurring/${id}`, { method: 'DELETE' }),
@@ -219,9 +230,9 @@ export const api = {
   driveSetAutoBackup: (enabled: boolean) =>
     post<{ ok: boolean }>('/api/drive/auto-backup', { enabled }),
 
-  audit: (qs?: Record<string, string>) => {
+  audit: (qs?: Record<string, string>, signal?: AbortSignal) => {
     const p = qs ? `?${new URLSearchParams(qs)}` : '';
-    return req<AuditEntry[]>(`/api/audit${p}`);
+    return req<AuditEntry[]>(`/api/audit${p}`, { signal });
   },
 };
 

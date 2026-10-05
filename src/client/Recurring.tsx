@@ -19,15 +19,27 @@ export function Recurring() {
   const { accounts, methods, categories, payees, suggestions, refresh, toast } = useStore();
   const [rules, setRules] = useState<RecurringRule[]>([]);
   const [err, setErr] = useState('');
+  const [loading, setLoading] = useState(true);
   const [editing, setEditing] = useState<RecurringRule | null>(null);
   const [creating, setCreating] = useState(false);
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
 
-  const load = useCallback(async () => {
-    setRules(await api.recurring().catch((e) => (setErr(e.message), [])));
+  const load = useCallback(async (signal?: AbortSignal) => {
+    setLoading(true);
+    setErr('');
+    try {
+      const rows = await api.recurring(signal);
+      if (!signal?.aborted) setRules(rows);
+    } catch (e) {
+      if (!signal?.aborted) setErr(e instanceof Error ? e.message : 'Unable to load rules');
+    } finally {
+      if (!signal?.aborted) setLoading(false);
+    }
   }, []);
   useEffect(() => {
-    load();
+    const controller = new AbortController();
+    load(controller.signal);
+    return () => controller.abort();
   }, [load]);
 
   const after = async (msg: string) => {
@@ -48,70 +60,86 @@ export function Recurring() {
         </button>
       </div>
 
-      {err && <Err msg={err} />}
+      {err && (
+        <div>
+          <Err msg={err} />
+          <button className="outline" onClick={() => load()}>
+            Retry
+          </button>
+        </div>
+      )}
       <section className="card">
-        {rules.map((r) => (
-          <div className="recurringrow" key={r.id}>
-            <div className="avatar">{avatarLetter(r.description, r.name)}</div>
-            <div className="txmain">
-              <strong className={r.is_active ? '' : 'strikethrough'}>
-                {r.name}
-                {r.no_of_payments ? ` · ${r.frequency} × ${r.no_of_payments}` : ` · ${r.frequency}`}
-              </strong>
-              <span>
-                {fmtDateTime(r.next_due_at)} ·{' '}
-                {accounts.find((a) => a.id === r.account_id)?.name || ''}
-              </span>
-            </div>
-            <b className={r.transaction_type === 'income' ? 'positive' : ''}>
-              {money(r.amount_minor)}
-            </b>
-            <div className="recurringactions">
-              <button
-                className="chip"
-                title="Generate next now"
-                onClick={async () => {
-                  setErr('');
-                  try {
-                    await api.generateRecurring(r.id);
-                    await after('Generated');
-                  } catch (e) {
-                    setErr(e instanceof Error ? e.message : '');
-                  }
-                }}
-              >
-                ▶
-              </button>
-              <button
-                className="chip"
-                title="Skip to next due"
-                onClick={async () => {
-                  await api.skipRecurring(r.id);
-                  await after('Skipped');
-                }}
-              >
-                ⏭
-              </button>
-              <button
-                className="chip"
-                title={r.is_active ? 'Pause' : 'Resume'}
-                onClick={async () => {
-                  await api.toggleRecurring(r.id);
-                  await after(r.is_active ? 'Paused' : 'Resumed');
-                }}
-              >
-                {r.is_active ? '⏸' : '▶'}
-              </button>
-              <button className="chip" onClick={() => setEditing(r)}>
-                ✎
-              </button>
-              <button className="chip danger" onClick={() => setConfirmDeleteId(r.id)}>
-                ×
-              </button>
-            </div>
+        {loading && (
+          <div className="loading" role="status">
+            Loading…
           </div>
-        ))}
-        {!rules.length && <Empty text="No recurring rules yet." />}
+        )}
+        {!loading &&
+          !err &&
+          rules.map((r) => (
+            <div className="recurringrow" key={r.id}>
+              <div className="avatar">{avatarLetter(r.description, r.name)}</div>
+              <div className="txmain">
+                <strong className={r.is_active ? '' : 'strikethrough'}>
+                  {r.name}
+                  {r.no_of_payments
+                    ? ` · ${r.frequency} × ${r.no_of_payments}`
+                    : ` · ${r.frequency}`}
+                </strong>
+                <span>
+                  {fmtDateTime(r.next_due_at)} ·{' '}
+                  {accounts.find((a) => a.id === r.account_id)?.name || ''}
+                </span>
+              </div>
+              <b className={r.transaction_type === 'income' ? 'positive' : ''}>
+                {money(r.amount_minor)}
+              </b>
+              <div className="recurringactions">
+                <button
+                  className="chip"
+                  title="Generate next now"
+                  onClick={async () => {
+                    setErr('');
+                    try {
+                      await api.generateRecurring(r.id);
+                      await after('Generated');
+                    } catch (e) {
+                      setErr(e instanceof Error ? e.message : '');
+                    }
+                  }}
+                >
+                  ▶
+                </button>
+                <button
+                  className="chip"
+                  title="Skip to next due"
+                  onClick={async () => {
+                    await api.skipRecurring(r.id);
+                    await after('Skipped');
+                  }}
+                >
+                  ⏭
+                </button>
+                <button
+                  className="chip"
+                  title={r.is_active ? 'Pause' : 'Resume'}
+                  onClick={async () => {
+                    await api.toggleRecurring(r.id);
+                    await after(r.is_active ? 'Paused' : 'Resumed');
+                  }}
+                >
+                  {r.is_active ? '⏸' : '▶'}
+                </button>
+                <button className="chip" onClick={() => setEditing(r)}>
+                  ✎
+                </button>
+                <button className="chip danger" onClick={() => setConfirmDeleteId(r.id)}>
+                  ×
+                </button>
+              </div>
+            </div>
+          ))}
+        {!loading && !err && !rules.length && <Empty text="No recurring rules yet." />}
       </section>
 
       {confirmDeleteId && (

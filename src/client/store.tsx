@@ -7,7 +7,6 @@ import type {
   Payee,
   Tag,
   Bootstrap,
-  Dashboard,
   TxView,
 } from '../shared/types';
 
@@ -52,7 +51,6 @@ export interface Store {
   tags: Tag[];
   suggestions: string[];
   transactions: TxView[];
-  dash: Dashboard | null;
   page: Page;
   modal: Modal;
   go: (p: Page) => void;
@@ -123,15 +121,10 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   const [tags, setTags] = useState<Tag[]>([]);
   const [suggestions, setSuggestions] = useState<string[]>([]);
   const [transactions, setTransactions] = useState<TxView[]>([]);
-  const [dash, setDash] = useState<Dashboard | null>(null);
 
   const refresh = useCallback(async () => {
     try {
-      const [b, d, t] = await Promise.all([
-        api.bootstrap(),
-        api.dashboard(),
-        fetchAllTransactions(),
-      ]);
+      const [b, t] = await Promise.all([api.bootstrap(), fetchAllTransactions()]);
       const src: Bootstrap = b || EMPTY;
       setAccounts(src.accounts || []);
       setCategories(src.categories || []);
@@ -140,7 +133,6 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       setTags(src.tags || []);
       setSuggestions(src.suggestions || []);
       setTransactions(t || []);
-      setDash(d);
       setError('');
       setNeedsLogin(false);
     } catch (e) {
@@ -183,7 +175,6 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       tags,
       suggestions,
       transactions,
-      dash,
       page,
       modal,
       go: setPage,
@@ -207,7 +198,6 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       tags,
       suggestions,
       transactions,
-      dash,
       page,
       modal,
       openActivity,

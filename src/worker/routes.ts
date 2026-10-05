@@ -162,7 +162,7 @@ async function txDetail(env: Env, txId: string): Promise<Row | null> {
   };
 }
 
-async function listTransactions(env: Env, url: URL): Promise<Response> {
+async function listTransactions(env: Env, url: URL, trashOnly = false): Promise<Response> {
   const limit = clampInt(url.searchParams.get('limit'), 1, 500, 100);
   const offset = clampInt(url.searchParams.get('offset'), 0, 1_000_000, 0);
   const q = (url.searchParams.get('q') || '').trim();
@@ -175,8 +175,18 @@ async function listTransactions(env: Env, url: URL): Promise<Response> {
   const to = url.searchParams.get('to');
   const includeDeleted = url.searchParams.get('deleted') === '1';
 
-  const clauses = [includeDeleted ? '1=1' : 't.deleted_at IS NULL'];
+  const clauses = [
+    trashOnly ? 't.deleted_at IS NOT NULL' : includeDeleted ? '1=1' : 't.deleted_at IS NULL',
+  ];
   const params: unknown[] = [];
+  const before = url.searchParams.get('before');
+  const beforeCreated = url.searchParams.get('beforeCreated');
+  const beforeId = url.searchParams.get('beforeId');
+  if (before || beforeCreated || beforeId) {
+    if (!before || !beforeCreated || !beforeId) throw new HttpError(400, 'Incomplete cursor');
+    clauses.push('(t.occurred_at, t.created_at, t.id) < (?, ?, ?)');
+    params.push(before, beforeCreated, beforeId);
+  }
   if (q) {
     const s = `%${q}%`;
     clauses.push(
@@ -218,7 +228,7 @@ async function listTransactions(env: Env, url: URL): Promise<Response> {
   }
 
   const r = await env.DB.prepare(
-    `${TX_SELECT} WHERE ${clauses.join(' AND ')} ORDER BY t.occurred_at DESC, t.created_at DESC LIMIT ? OFFSET ?`
+    `${TX_SELECT} WHERE ${clauses.join(' AND ')} ORDER BY t.occurred_at DESC, t.created_at DESC, t.id DESC LIMIT ? OFFSET ?`
   )
     .bind(...params, limit, offset)
     .all<Row>();
@@ -1629,6 +1639,14 @@ async function handleAudit(env: Env, url: URL): Promise<Response> {
   const entityId = url.searchParams.get('entityId');
   const clauses = [];
   const params: unknown[] = [];
+  const limit = clampInt(url.searchParams.get('limit'), 1, 300, 300);
+  const before = url.searchParams.get('before');
+  const beforeId = url.searchParams.get('beforeId');
+  if (before || beforeId) {
+    if (!before || !beforeId) throw new HttpError(400, 'Incomplete cursor');
+    clauses.push('(occurred_at, id) < (?, ?)');
+    params.push(before, beforeId);
+  }
   if (entityType) {
     clauses.push('entity_type=?');
     params.push(entityType);
@@ -1638,10 +1656,18 @@ async function handleAudit(env: Env, url: URL): Promise<Response> {
     params.push(entityId);
   }
   const where = clauses.length ? ` WHERE ${clauses.join(' AND ')}` : '';
+  // Strip embedded file payloads in SQL, including historical snapshots, so they
+  // never travel from D1 to the Worker or browser. Keep the attachment metadata.
+  const snapshot = (column: string) =>
+    `CASE WHEN entity_type='attachment' AND json_valid(${column})
+      THEN json_remove(${column}, '$.external_file_id', '$.url')
+      ELSE ${column} END AS ${column}`;
   const r = await env.DB.prepare(
-    `SELECT * FROM audit_log${where} ORDER BY occurred_at DESC LIMIT 300`
+    `SELECT id, occurred_at, entity_type, entity_id, action,
+      ${snapshot('before_json')}, ${snapshot('after_json')}, metadata_json
+      FROM audit_log${where} ORDER BY occurred_at DESC, id DESC LIMIT ?`
   )
-    .bind(...params)
+    .bind(...params, limit)
     .all<Row>();
   return json(r.results);
 }
@@ -1723,16 +1749,8 @@ export async function route(request: Request, url: URL, env: Env): Promise<Respo
   if (seg[1] === 'transfers' && seg[2]) {
     if (m === 'PUT') return res(await updateTransfer(env, request, seg[2]));
   }
-  if (p === '/api/trash') {
-    if (m === 'GET')
-      return res(
-        await listTransactions(
-          env,
-          new URL(`http://x/api/transactions?deleted=1&limit=500`, url.origin)
-        )
-      );
-    if (m === 'POST' && seg[2] === 'purge') return res(json(await purgeAllTrash(env)));
-  }
+  if (m === 'GET' && p === '/api/trash') return res(await listTransactions(env, url, true));
+  if (m === 'POST' && p === '/api/trash/purge') return res(json(await purgeAllTrash(env)));
 
   // master data
   const master: Record<string, { table: string; entity: string; order: string }> = {

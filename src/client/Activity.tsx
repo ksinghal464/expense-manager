@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useDeferredValue, useEffect, useMemo, useState } from 'react';
 import { useStore } from './store';
 import { api } from './api';
 import type { SearchOptions } from './api';
@@ -61,6 +61,7 @@ export function Activity() {
     clearActivityFilter,
   } = useStore();
   const [query, setQuery] = useState('');
+  const deferredQuery = useDeferredValue(query);
   const [type, setType] = useState<'all' | 'expense' | 'income'>('all');
   const [accountId, setAccountId] = useState('');
   const [categoryId, setCategoryId] = useState<string | null | undefined>(undefined);
@@ -135,7 +136,7 @@ export function Activity() {
   const roots = categoryRoots(categories);
 
   const filtered = useMemo(() => {
-    const terms = query.trim().toLowerCase().split(/\s+/).filter(Boolean);
+    const terms = deferredQuery.trim().toLowerCase().split(/\s+/).filter(Boolean);
     let list = transactions;
     if (type === 'expense') {
       // Refunds net against expense (see rangeStats in aggregate.ts), so include
@@ -187,7 +188,7 @@ export function Activity() {
     });
   }, [
     transactions,
-    query,
+    deferredQuery,
     type,
     accountId,
     categoryId,
@@ -211,7 +212,7 @@ export function Activity() {
   // once something else also trims the list does a "balance" stop making
   // sense and a from-zero "net of this selection" take over instead.
   const narrowsWithinAccount = Boolean(
-    query.trim() ||
+    deferredQuery.trim() ||
     type !== 'all' ||
     categoryId !== undefined ||
     methodId ||
@@ -255,6 +256,11 @@ export function Activity() {
     }
     return { balanceById: map, overallBalance: overall };
   }, [filtered, narrowsWithinAccount, accounts]);
+
+  // Limit DOM work only; balances and totals above still use every matching row.
+  const [pagination, setPagination] = useState({ filtered, page: 0 });
+  if (pagination.filtered !== filtered) setPagination({ filtered, page: 0 });
+  const pageCount = Math.max(1, Math.ceil(filtered.length / 50));
 
   // Each group also carries a short singular tag (shown on every suggestion
   // button) so identical values from different fields — e.g. a "Other"
@@ -555,7 +561,7 @@ export function Activity() {
       )}
 
       <section className="card activity-card">
-        {filtered.map((t) => (
+        {filtered.slice(pagination.page * 50, (pagination.page + 1) * 50).map((t) => (
           <TxRow
             key={t.id}
             t={t}
@@ -567,6 +573,27 @@ export function Activity() {
           />
         ))}
         {!filtered.length && <Empty text="No matching transactions." />}
+        {pageCount > 1 && (
+          <div className="list-pagination" role="navigation" aria-label="Activity pages">
+            <button
+              className="outline"
+              disabled={pagination.page === 0}
+              onClick={() => setPagination((p) => ({ ...p, page: p.page - 1 }))}
+            >
+              Previous
+            </button>
+            <span>
+              Page {pagination.page + 1} of {pageCount}
+            </span>
+            <button
+              className="outline"
+              disabled={pagination.page + 1 >= pageCount}
+              onClick={() => setPagination((p) => ({ ...p, page: p.page + 1 }))}
+            >
+              Next
+            </button>
+          </div>
+        )}
       </section>
     </main>
   );

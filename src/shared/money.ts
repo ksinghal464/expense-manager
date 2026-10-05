@@ -6,14 +6,15 @@ export function toMinor(amount: number | string): number {
 }
 
 /** Format minor units as an INR string, e.g. 123450 -> "₹1,234.50". */
+const amountFormatter = new Intl.NumberFormat('en-IN', {
+  minimumFractionDigits: 2,
+  maximumFractionDigits: 2,
+});
+
 export function formatMinor(minor: number): string {
   const sign = minor < 0 ? '-' : '';
   const major = Math.abs(minor) / 100;
-  return (
-    sign +
-    '\u20B9' +
-    major.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
-  );
+  return sign + '\u20B9' + amountFormatter.format(major);
 }
 
 /** Parse a user-entered amount ("1,234.50") to minor units. Returns null if invalid. */
