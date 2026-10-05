@@ -1821,27 +1821,29 @@ export async function route(request: Request, url: URL, env: Env): Promise<Respo
   if (m === 'POST' && p === '/api/drive/backup') return res(await handleDriveBackup(env));
   if (m === 'POST' && p === '/api/drive/restore') return res(await handleDriveRestore(env));
   if (m === 'GET' && p === '/api/drive/status') return res(json(await driveStatus(env)));
-  if (m === 'GET' && p === '/api/drive/connect') {
-    const location = await driveAuthUrl(env, url);
-    return res(new Response(null, { status: 302, headers: { location } }));
+  // POST + session cookie (SameSite=Lax) means only the logged-in app can start a connection.
+  if (m === 'POST' && p === '/api/drive/connect') {
+    return res(json({ url: await driveAuthUrl(env, url) }));
   }
   if (m === 'GET' && p === '/api/drive/callback') {
     const code = url.searchParams.get('code');
     const state = url.searchParams.get('state');
     const error = url.searchParams.get('error');
     const back = `${url.protocol}//${url.host}/?manage=data`;
-    if (error)
-      return res(
-        textBody(driveCallbackHtml('error', `${back}&drive=error`), 'text/html; charset=utf-8')
+    const failed = (message: string) =>
+      res(
+        textBody(
+          driveCallbackHtml('error', `${back}&drive=error`, message),
+          'text/html; charset=utf-8'
+        )
       );
+    if (error) return failed('Google sign-in was cancelled.');
     if (!code) throw new HttpError(400, 'Missing authorization code.');
     try {
       await driveHandleCallback(env, url, code, state);
     } catch (e) {
       console.error('drive: OAuth callback failed', e);
-      return res(
-        textBody(driveCallbackHtml('error', `${back}&drive=error`), 'text/html; charset=utf-8')
-      );
+      return failed(e instanceof HttpError ? e.message : 'Google Drive connection failed.');
     }
     return res(
       textBody(

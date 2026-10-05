@@ -1,0 +1,99 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Expense Manager — About &amp; Privacy</title>
+    <style>
+      body {
+        margin: 0;
+        background: #f5f7fa;
+        color: #142033;
+        font-family:
+          Inter,
+          ui-sans-serif,
+          system-ui,
+          -apple-system,
+          'Segoe UI',
+          sans-serif;
+        line-height: 1.6;
+      }
+      main {
+        max-width: 720px;
+        margin: 0 auto;
+        padding: 32px 20px 48px;
+      }
+      h1 {
+        font-size: 26px;
+      }
+      h2 {
+        font-size: 18px;
+        margin-top: 28px;
+      }
+      a {
+        color: #1677d2;
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <h1>Expense Manager</h1>
+      <p>
+        Expense Manager is a private, single-user web app for recording personal expenses and
+        income, organising them by account, category and payment method, and viewing totals and
+        balances. It is used only by its owner, behind a password; there are no other user accounts
+        and no public sign-up.
+      </p>
+      <p><a href="/">Open the app</a> (password required).</p>
+
+      <h2>Privacy policy</h2>
+      <p>Last updated: 5 October 2026.</p>
+
+      <h2>Data the app stores</h2>
+      <p>
+        The app stores the financial records its owner enters (transactions, accounts, categories,
+        payees, tags, attachments and a change history) in the owner's own Cloudflare D1 database.
+        This data is not sold, shared with or disclosed to anyone.
+      </p>
+
+      <h2>Google user data</h2>
+      <p>
+        The owner can optionally connect Google Drive to keep a backup copy of their data. When
+        connected, the app requests:
+      </p>
+      <ul>
+        <li>
+          <strong>Google Drive (only files this app creates)</strong> — used solely to create and
+          update one backup file, <code>expense-manager-backup.json</code>, and to read it back if
+          the owner chooses to restore. The app cannot see or change any other files in Drive.
+        </li>
+        <li>
+          <strong>Email address</strong> — used only to check that the Google account connecting is
+          the owner's own account. Any other account is rejected and its access is revoked
+          immediately.
+        </li>
+      </ul>
+      <p>
+        A Google refresh token is stored encrypted, so daily automatic backups can run. Google user
+        data is used only to provide this backup feature. It is not used for advertising, not
+        transferred or sold to anyone, and not used to train AI models. The app's use of information
+        received from Google APIs adheres to the
+        <a href="https://developers.google.com/terms/api-services-user-data-policy"
+          >Google API Services User Data Policy</a
+        >, including the Limited Use requirements.
+      </p>
+
+      <h2>Removing access</h2>
+      <p>
+        The owner can disconnect Google Drive at any time in the app (Manage → Data → Disconnect),
+        which revokes the app's access and deletes the stored token. Access can also be removed from
+        the Google Account's
+        <a href="https://myaccount.google.com/connections">Third-party connections</a> page. Backup
+        files already saved in Drive stay in the owner's Drive until the owner deletes them.
+      </p>
+
+      <h2>Contact</h2>
+      <p>This app is operated by its single owner for personal use only.</p>
+    </main>
+  </body>
+</html>

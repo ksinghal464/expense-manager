@@ -94,11 +94,11 @@ describe('requireAuth', () => {
     await expect(requireAuth(request, url, env)).resolves.not.toThrow();
   });
 
-  it('always allows the Drive OAuth connect path, even unauthenticated (popup navigations do not reliably carry the session cookie)', async () => {
+  it('requires a session to start the Drive OAuth connect flow', async () => {
     const env = makeEnv({ APP_PASSWORD: 'hunter2' });
     const url = new URL('https://expense-manager.example.com/api/drive/connect');
-    const request = new Request(url);
-    await expect(requireAuth(request, url, env)).resolves.not.toThrow();
+    const request = new Request(url, { method: 'POST' });
+    await expect(requireAuth(request, url, env)).rejects.toThrow(HttpError);
   });
 
   it('always allows the health check path', async () => {

@@ -4,6 +4,8 @@ export interface Env {
   GOOGLE_OAUTH_CLIENT_ID?: string;
   GOOGLE_OAUTH_CLIENT_SECRET?: string;
   DRIVE_TOKEN_ENCRYPTION_KEY?: string;
+  /** The only Google account allowed to connect Drive backup. */
+  DRIVE_ALLOWED_EMAIL?: string;
   APP_PASSWORD?: string;
 }
 

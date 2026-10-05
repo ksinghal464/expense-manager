@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { api, ImportSummary } from './api';
+import { api, ImportSummary, type DriveStatus } from './api';
 import { useStore } from './store';
 import { Err } from './ui';
 import { fmtDateTime } from './lib';
@@ -15,14 +15,6 @@ function download(name: string, text: string, type: string) {
   a.remove();
   setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
-
-type DriveStatus = {
-  configured: boolean;
-  connected: boolean;
-  lastBackupAt: string | null;
-  lastBackupError: string | null;
-  autoBackup: boolean;
-};
 
 export function ImportExport({ onDone }: { onDone?: () => void }) {
   const { refresh, toast } = useStore();
@@ -63,38 +55,45 @@ export function ImportExport({ onDone }: { onDone?: () => void }) {
   useEffect(() => {
     const onMessage = (e: MessageEvent) => {
       if (e.origin !== window.location.origin) return;
-      const data = e.data as { source?: string; status?: string } | null;
+      const data = e.data as { source?: string; status?: string; message?: string } | null;
       if (!data || data.source !== 'expense-manager-drive-oauth') return;
       setConnecting(false);
       if (data.status === 'connected') {
         loadDrive();
         toast('Google Drive connected');
       } else {
-        setErr('Google Drive connection was cancelled or failed.');
+        setErr(data.message || 'Google Drive connection was cancelled or failed.');
       }
     };
     window.addEventListener('message', onMessage);
     return () => window.removeEventListener('message', onMessage);
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const connectDrive = () => {
+  const connectDrive = async () => {
     setErr('');
     setConnecting(true);
     const w = 480;
     const h = 680;
     const left = window.screenX + Math.max(0, (window.outerWidth - w) / 2);
     const top = window.screenY + Math.max(0, (window.outerHeight - h) / 2);
-    const popup = window.open(
-      '/api/drive/connect',
-      'gdrive_oauth',
-      `width=${w},height=${h},left=${left},top=${top}`
-    );
-    if (!popup) {
-      // Popup blocked: fall back to the old same-tab redirect flow.
+    // Open the popup synchronously inside the click so blockers allow it,
+    // then point it at Google once the logged-in session has issued the link.
+    const popup = window.open('', 'gdrive_oauth', `width=${w},height=${h},left=${left},top=${top}`);
+    let authUrl: string;
+    try {
+      authUrl = (await api.driveConnect()).url;
+    } catch (e) {
+      popup?.close();
       setConnecting(false);
-      window.location.href = '/api/drive/connect';
+      setErr(e instanceof Error ? e.message : 'Unable to start Google Drive connection');
       return;
     }
+    if (!popup || popup.closed) {
+      // Popup blocked (or closed already): fall back to a same-tab redirect.
+      window.location.href = authUrl;
+      return;
+    }
+    popup.location.href = authUrl;
     // If the user closes the popup without finishing, don't leave the
     // button stuck showing "Connecting…" forever.
     const poll = window.setInterval(() => {
@@ -286,12 +285,34 @@ export function ImportExport({ onDone }: { onDone?: () => void }) {
           </div>
         ) : !drive.connected ? (
           <>
+            {(drive.disconnectedAt || drive.lastBackupAt) && (
+              <div className="warn">
+                {drive.disconnectReason === 'expired' && drive.disconnectedAt
+                  ? `Disconnected automatically on ${fmtDateTime(drive.disconnectedAt)} — Google rejected the saved sign-in.`
+                  : drive.disconnectReason === 'manual' && drive.disconnectedAt
+                    ? `Disconnected on ${fmtDateTime(drive.disconnectedAt)}.`
+                    : 'Google Drive is disconnected.'}{' '}
+                Last backup: {drive.lastBackupAt ? fmtDateTime(drive.lastBackupAt) : 'never'}.
+                {drive.autoBackup && ' Automatic daily backups are paused until you reconnect.'}
+                {drive.lastBackupError && ` Last attempt failed: ${drive.lastBackupError}`}
+              </div>
+            )}
             <div className="iohint">
               Connect your own Google account. Backups are stored in a file only this app can see,
               in your Drive — Drive is never the live database.
             </div>
+            {!drive.allowedEmailConfigured && (
+              <div className="warn">
+                Set DRIVE_ALLOWED_EMAIL (your Google account email) in the Cloudflare Worker
+                settings before connecting. Only that account will be accepted.
+              </div>
+            )}
             <div className="iorow">
-              <button className="outline" onClick={connectDrive} disabled={connecting}>
+              <button
+                className="outline"
+                onClick={connectDrive}
+                disabled={connecting || !drive.allowedEmailConfigured}
+              >
                 {connecting ? 'Connecting…' : 'Connect Google Drive'}
               </button>
             </div>

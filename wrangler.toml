@@ -28,7 +28,9 @@ crons = ["30 0 * * *"]
 #   GOOGLE_OAUTH_CLIENT_ID     - OAuth 2.0 Web client ID from Google Cloud Console
 #   GOOGLE_OAUTH_CLIENT_SECRET - OAuth 2.0 Web client secret
 #   DRIVE_TOKEN_ENCRYPTION_KEY - random 32-byte base64 key (e.g. `openssl rand -base64 32`)
+#   DRIVE_ALLOWED_EMAIL        - the only Google account allowed to connect Drive backup
 #   Redirect URI to register on the OAuth client:
 #     https://expense-manager.ksinghal464.workers.dev/api/drive/callback
-#   Scope requested: https://www.googleapis.com/auth/drive.file
-#   (per-file access only — the app can only see files it created itself)
+#   Scopes requested: openid email https://www.googleapis.com/auth/drive.file
+#   (drive.file is per-file access only — the app can only see files it created
+#   itself; openid/email only confirm the connecting account is DRIVE_ALLOWED_EMAIL)

@@ -47,6 +47,16 @@ export type SearchOptions = {
   tags: { id: string; name: string }[];
 };
 export type Generated = { created: number; skipped: number; deactivated: number };
+export type DriveStatus = {
+  configured: boolean;
+  connected: boolean;
+  allowedEmailConfigured: boolean;
+  lastBackupAt: string | null;
+  lastBackupError: string | null;
+  autoBackup: boolean;
+  disconnectedAt: string | null;
+  disconnectReason: 'expired' | 'manual' | null;
+};
 
 export class ApiError extends Error {
   constructor(
@@ -215,14 +225,8 @@ export const api = {
   },
   exportJson: () => req<unknown>('/api/export/json'),
   restoreBackup: (backup: unknown) => post<{ restored: number }>('/api/import/backup', backup),
-  driveStatus: () =>
-    req<{
-      configured: boolean;
-      connected: boolean;
-      lastBackupAt: string | null;
-      lastBackupError: string | null;
-      autoBackup: boolean;
-    }>('/api/drive/status'),
+  driveStatus: () => req<DriveStatus>('/api/drive/status'),
+  driveConnect: () => post<{ url: string }>('/api/drive/connect', {}),
   driveBackup: () =>
     post<{ ok: boolean; fileId: string; backedUpAt: string }>('/api/drive/backup', {}),
   driveRestore: () => post<{ restored: number }>('/api/drive/restore', {}),

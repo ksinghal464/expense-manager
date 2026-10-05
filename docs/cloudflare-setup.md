@@ -26,14 +26,14 @@ credit-card requirement of any kind.
    nothing is stored server-side, so there's no session table to manage.
    The signing key is derived from `APP_PASSWORD` itself, so changing the
    password immediately invalidates every previously-issued session.
-3. `/api/health`, `/api/drive/connect`, and `/api/drive/callback` are
-   intentionally exempt from the password check (health checks need to work
-   unauthenticated; the Drive connect/callback pair needs to work when
-   opened as a popup window, which doesn't reliably carry the session
-   cookie on that specific top-level navigation in every browser). Note this
-   means anyone with the URL can initiate/redirect the Google Drive linking
-   flow without the app password — low risk for a personal, unpublicized
-   deployment, but worth knowing.
+3. `/api/health` and `/api/drive/callback` are intentionally exempt from the
+   password check. Health checks need to work unauthenticated, and Google
+   redirects the Drive popup to the callback, a navigation that doesn't
+   reliably carry the session cookie. The callback is still protected:
+   a Drive connection can only be started by the logged-in app (`POST
+/api/drive/connect` requires the session), the callback only accepts the
+   single-use `state` that request issued, and it only accepts the Google
+   account set in `DRIVE_ALLOWED_EMAIL`.
 4. If `APP_PASSWORD` is ever unset, the Worker fails closed (503) rather than
    silently allowing every request through.
 
@@ -43,8 +43,35 @@ credit-card requirement of any kind.
 wrangler secret put GOOGLE_OAUTH_CLIENT_ID
 wrangler secret put GOOGLE_OAUTH_CLIENT_SECRET
 wrangler secret put DRIVE_TOKEN_ENCRYPTION_KEY   # random 32-byte base64 key, e.g. `openssl rand -base64 32`
+wrangler secret put DRIVE_ALLOWED_EMAIL          # the only Google account allowed to connect Drive
 wrangler secret put APP_PASSWORD
 ```
 
 Register the exact callback URL on the OAuth client in Google Cloud Console:
 `https://<your-worker-hostname>/api/drive/callback`.
+
+Until `DRIVE_ALLOWED_EMAIL` is set, connecting Drive is refused. The callback
+rejects (and revokes) any sign-in whose verified email doesn't match it, or
+where the Drive permission was unticked on Google's consent screen.
+
+### Publishing the Google OAuth app
+
+While the app's publishing status is **Testing**, Google expires the Drive
+sign-in 7 days after consent, so backups stop. Publish it instead:
+
+1. **Branding**: app name (without "Google"/"Drive"), support and developer
+   email, home page `https://<your-worker-hostname>`, privacy policy
+   `https://<your-worker-hostname>/privacy.html` (served from `public/`
+   without the password), authorized domain e.g. `<you>.workers.dev`. Leave
+   the logo empty: uploading one triggers a branding review.
+2. **Data access**: `openid`, `.../auth/userinfo.email` and
+   `.../auth/drive.file`. None of these are sensitive scopes, so no
+   verification is needed.
+3. **Audience**: **Publish app**. This only lets any Google account reach the
+   consent screen; the checks above still refuse everyone but you.
+4. Reconnect Drive in **Manage → Data** and run **Backup now**.
+
+The app only drops the saved Google sign-in when Google reports it is
+expired or revoked (`invalid_grant`); it records when, and the Data tab
+shows it. Other refresh errors keep the sign-in and are shown as the last
+backup error.

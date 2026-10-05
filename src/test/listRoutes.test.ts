@@ -1,8 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { DatabaseSync } from 'node:sqlite';
-import { readFileSync, readdirSync } from 'node:fs';
+import type { DatabaseSync } from 'node:sqlite';
 import { route } from '../worker/routes';
 import type { Env } from '../worker/http';
+import { sqliteEnv } from './sqliteEnv';
 
 // Run the route SQL against real SQLite, rather than mocking query results.
 let db: DatabaseSync;
@@ -10,36 +10,7 @@ let env: Env;
 const at = '2026-10-01T00:00:00.000Z';
 
 beforeEach(() => {
-  db = new DatabaseSync(':memory:');
-  const migrations = new URL('../../migrations/', import.meta.url);
-  for (const file of readdirSync(migrations)
-    .filter((f) => f.endsWith('.sql'))
-    .sort()) {
-    db.exec(readFileSync(new URL(file, migrations), 'utf8'));
-  }
-  env = {
-    DB: {
-      prepare(sql: string) {
-        const statement = db.prepare(sql);
-        let args: any[] = [];
-        return {
-          bind(...values: any[]) {
-            args = values;
-            return this;
-          },
-          async all() {
-            return { results: statement.all(...args) };
-          },
-          async first() {
-            return statement.get(...args) ?? null;
-          },
-          async run() {
-            return statement.run(...args);
-          },
-        };
-      },
-    },
-  } as unknown as Env;
+  ({ db, env } = sqliteEnv());
   db.prepare(
     `INSERT INTO accounts (id,name,opening_balance_at,created_at,updated_at)
     VALUES ('test-account','Test',?,?,?)`

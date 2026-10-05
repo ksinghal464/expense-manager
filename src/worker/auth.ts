@@ -16,12 +16,10 @@ import { Env, HttpError } from './http';
 const COOKIE_NAME = 'em_session';
 const SESSION_MS = 30 * 24 * 3600 * 1000; // 30 days
 
-const BYPASS_PATHS = new Set([
-  '/api/drive/connect',
-  '/api/drive/callback',
-  '/api/health',
-  '/api/login',
-]);
+// The Drive callback stays exempt because Google redirects the popup there and
+// that navigation does not reliably carry the session cookie. It only accepts a
+// one-time state issued by the authenticated POST /api/drive/connect.
+const BYPASS_PATHS = new Set(['/api/drive/callback', '/api/health', '/api/login']);
 
 function b64url(bytes: Uint8Array): string {
   let s = '';

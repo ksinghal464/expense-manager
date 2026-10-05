@@ -12,7 +12,11 @@ const TOKEN_URL = 'https://oauth2.googleapis.com/token';
 const REVOKE_URL = 'https://oauth2.googleapis.com/revoke';
 const DRIVE_API = 'https://www.googleapis.com/drive/v3/files';
 const DRIVE_UPLOAD_API = 'https://www.googleapis.com/upload/drive/v3/files';
-const SCOPE = 'https://www.googleapis.com/auth/drive.file';
+const DRIVE_SCOPE = 'https://www.googleapis.com/auth/drive.file';
+// openid + email let the callback confirm which Google account signed in
+// (non-sensitive scopes; no Google review needed).
+const SCOPE = `openid email ${DRIVE_SCOPE}`;
+const GOOGLE_ISSUERS = new Set(['accounts.google.com', 'https://accounts.google.com']);
 const BACKUP_FILE_NAME = 'expense-manager-backup.json';
 const STATE_TTL_MS = 10 * 60 * 1000; // 10 minutes to complete the OAuth round trip
 
@@ -21,6 +25,13 @@ type Row = Record<string, any>;
 function oauthConfigured(env: Env): boolean {
   return Boolean(env.GOOGLE_OAUTH_CLIENT_ID && env.GOOGLE_OAUTH_CLIENT_SECRET);
 }
+
+function allowedEmail(env: Env): string {
+  return (env.DRIVE_ALLOWED_EMAIL || '').trim().toLowerCase();
+}
+
+const NO_ALLOWED_EMAIL =
+  'Set DRIVE_ALLOWED_EMAIL (your Google account email) in the Worker settings before connecting Google Drive.';
 
 async function getSetting(env: Env, key: string): Promise<string | null> {
   const r = await env.DB.prepare('SELECT value FROM settings WHERE key=?').bind(key).first<Row>();
@@ -91,32 +102,49 @@ export function driveConfigured(env: Env): boolean {
   return oauthConfigured(env);
 }
 
+type DisconnectReason = 'expired' | 'manual';
+
+/** Remember when and why Drive stopped being connected, so the UI can explain it. */
+async function recordDisconnect(env: Env, reason: DisconnectReason): Promise<void> {
+  await setSetting(env, 'drive_disconnected_at', now());
+  await setSetting(env, 'drive_disconnect_reason', reason);
+}
+
 /** Current connection/backup status for the UI. */
 export async function driveStatus(env: Env): Promise<{
   configured: boolean;
   connected: boolean;
+  allowedEmailConfigured: boolean;
   lastBackupAt: string | null;
   lastBackupError: string | null;
   autoBackup: boolean;
+  disconnectedAt: string | null;
+  disconnectReason: DisconnectReason | null;
 }> {
   const refreshToken = await getSetting(env, 'drive_refresh_token');
   const lastBackupAt = await getSetting(env, 'drive_last_backup_at');
   const lastBackupError = await getSetting(env, 'drive_last_backup_error');
   const autoBackup = (await getSetting(env, 'drive_auto_backup')) === '1';
+  const connected = Boolean(refreshToken);
+  const disconnectedAt = connected ? null : await getSetting(env, 'drive_disconnected_at');
+  const reason = connected ? null : await getSetting(env, 'drive_disconnect_reason');
   return {
     configured: oauthConfigured(env),
-    connected: Boolean(refreshToken),
+    connected,
+    allowedEmailConfigured: Boolean(allowedEmail(env)),
     lastBackupAt,
     lastBackupError,
     autoBackup,
+    disconnectedAt,
+    disconnectReason: reason === 'expired' || reason === 'manual' ? reason : null,
   };
 }
 
 /**
- * Build the Google consent-screen URL the browser should be sent to.
- * Generates a random, single-use `state` value bound to a short expiry and
- * persists it so the callback can detect a forged/replayed/missing state
- * (OAuth login-CSRF / account-linking protection).
+ * Build the Google consent-screen URL the browser should be sent to. Only
+ * reachable through the authenticated POST /api/drive/connect. Generates a
+ * random, single-use `state` value bound to a short expiry; the
+ * unauthenticated callback accepts nothing without it.
  */
 export async function driveAuthUrl(env: Env, url: URL): Promise<string> {
   if (!oauthConfigured(env)) {
@@ -125,6 +153,8 @@ export async function driveAuthUrl(env: Env, url: URL): Promise<string> {
       'Google Drive is not configured (set GOOGLE_OAUTH_CLIENT_ID / GOOGLE_OAUTH_CLIENT_SECRET secrets).'
     );
   }
+  const allowed = allowedEmail(env);
+  if (!allowed) throw new HttpError(503, NO_ALLOWED_EMAIL);
   const state = crypto.randomUUID();
   await setSetting(env, 'drive_oauth_state', state);
   await setSetting(env, 'drive_oauth_state_expires_at', String(Date.now() + STATE_TTL_MS));
@@ -135,28 +165,68 @@ export async function driveAuthUrl(env: Env, url: URL): Promise<string> {
     scope: SCOPE,
     access_type: 'offline',
     prompt: 'consent',
+    login_hint: allowed,
     state,
   });
   return `${AUTH_URL}?${params.toString()}`;
 }
 
-/** Validate a callback's `state` against the one issued by driveAuthUrl, single-use. */
+/**
+ * Validate a callback's `state` against the one issued by driveAuthUrl.
+ * A mismatching request leaves the pending state alone, so a stray or forged
+ * callback can't cancel a connection the owner has in progress. A matching
+ * state is consumed immediately, so it can never be reused.
+ */
 async function consumeState(env: Env, state: string | null): Promise<void> {
   const expected = await getSetting(env, 'drive_oauth_state');
+  if (!state || !expected || state !== expected) {
+    throw new HttpError(
+      400,
+      'This Google sign-in was not started from your logged-in app. Retry from Manage → Data.'
+    );
+  }
   const expiresAtRaw = await getSetting(env, 'drive_oauth_state_expires_at');
-  // Always invalidate immediately so a state value can never be reused.
   await deleteSetting(env, 'drive_oauth_state');
   await deleteSetting(env, 'drive_oauth_state_expires_at');
-  if (!state || !expected || state !== expected) {
-    throw new HttpError(400, 'Invalid or missing OAuth state. Please retry connecting.');
-  }
   const expiresAt = Number(expiresAtRaw);
   if (!Number.isFinite(expiresAt) || Date.now() > expiresAt) {
-    throw new HttpError(400, 'OAuth state expired. Please retry connecting.');
+    throw new HttpError(400, 'The Google sign-in took too long. Retry from Manage → Data.');
   }
 }
 
-/** Exchange the authorization code for tokens and persist the refresh token. */
+/** Decode a JWT's payload without verifying its signature. */
+function jwtPayload(token: string | undefined): Record<string, unknown> | null {
+  const part = token?.split('.')[1];
+  if (!part) return null;
+  try {
+    const b64 = part.replace(/-/g, '+').replace(/_/g, '/');
+    const padded = b64 + '='.repeat((4 - (b64.length % 4)) % 4);
+    const parsed = JSON.parse(new TextDecoder().decode(fromB64(padded)));
+    return parsed && typeof parsed === 'object' ? parsed : null;
+  } catch {
+    return null;
+  }
+}
+
+/** Best-effort: tell Google to cancel a grant this app won't keep. */
+async function revokeGrant(token: string | undefined): Promise<void> {
+  if (!token) return;
+  try {
+    await fetch(REVOKE_URL, {
+      method: 'POST',
+      headers: { 'content-type': 'application/x-www-form-urlencoded' },
+      body: new URLSearchParams({ token }),
+    });
+  } catch (e) {
+    console.error('drive: token revoke failed', e);
+  }
+}
+
+/**
+ * Exchange the authorization code for tokens and persist the refresh token,
+ * but only for the allowed Google account and only if Drive access was
+ * actually granted. Any rejection leaves the existing connection untouched.
+ */
 export async function driveHandleCallback(
   env: Env,
   url: URL,
@@ -164,6 +234,8 @@ export async function driveHandleCallback(
   state: string | null
 ): Promise<void> {
   if (!oauthConfigured(env)) throw new HttpError(503, 'Google Drive is not configured.');
+  const allowed = allowedEmail(env);
+  if (!allowed) throw new HttpError(503, NO_ALLOWED_EMAIL);
   await consumeState(env, state);
   const r = await fetch(TOKEN_URL, {
     method: 'POST',
@@ -180,7 +252,45 @@ export async function driveHandleCallback(
     const detail = await r.text().catch(() => '');
     throw new HttpError(502, `Google token exchange failed (${r.status}). ${detail.slice(0, 200)}`);
   }
-  const j = (await r.json()) as { refresh_token?: string; access_token?: string };
+  const j = (await r.json()) as {
+    refresh_token?: string;
+    access_token?: string;
+    id_token?: string;
+    scope?: string;
+  };
+  const reject = async (message: string): Promise<never> => {
+    await revokeGrant(j.refresh_token || j.access_token);
+    throw new HttpError(403, message);
+  };
+
+  // Google lets people untick individual permissions on the consent screen.
+  if (!(j.scope || '').split(/\s+/).includes(DRIVE_SCOPE)) {
+    await reject('Google Drive access was not granted. Reconnect and tick the Drive permission.');
+  }
+  // The ID token comes straight from Google's token endpoint over TLS, so per
+  // OpenID Connect Core 3.1.3.7 its signature check may be skipped; the
+  // audience, issuer and expiry are still checked.
+  const claims = jwtPayload(j.id_token);
+  const aud = claims?.aud;
+  const audOk = Array.isArray(aud)
+    ? aud.includes(env.GOOGLE_OAUTH_CLIENT_ID)
+    : aud === env.GOOGLE_OAUTH_CLIENT_ID;
+  if (
+    !claims ||
+    !audOk ||
+    !GOOGLE_ISSUERS.has(String(claims.iss)) ||
+    !(Number(claims.exp) * 1000 > Date.now())
+  ) {
+    await reject('Google did not confirm which account signed in. Retry from Manage → Data.');
+  }
+  const verified = claims!.email_verified === true || claims!.email_verified === 'true';
+  const email = typeof claims!.email === 'string' ? claims!.email.trim().toLowerCase() : '';
+  if (!verified || email !== allowed) {
+    await reject(
+      'This Google account is not allowed. Sign in with the account set in DRIVE_ALLOWED_EMAIL.'
+    );
+  }
+
   if (!j.refresh_token) {
     // Google only returns a refresh_token the first time consent is granted
     // (or when prompt=consent forces a new one, as above). If it's missing
@@ -188,27 +298,30 @@ export async function driveHandleCallback(
     const existing = await getSetting(env, 'drive_refresh_token');
     if (!existing)
       throw new HttpError(502, 'Google did not return a refresh token. Please retry connecting.');
-    return;
+  } else {
+    await setSetting(env, 'drive_refresh_token', await encryptToken(env, j.refresh_token));
   }
-  await setSetting(env, 'drive_refresh_token', await encryptToken(env, j.refresh_token));
+  // Fresh connection: drop the record of why it was previously disconnected.
+  await deleteSetting(env, 'drive_disconnected_at');
+  await deleteSetting(env, 'drive_disconnect_reason');
+  await deleteSetting(env, 'drive_last_backup_error');
 }
 
 export async function driveDisconnect(env: Env): Promise<void> {
   const encrypted = await getSetting(env, 'drive_refresh_token');
   if (encrypted) {
     try {
-      const token = await decryptToken(env, encrypted);
-      await fetch(`${REVOKE_URL}?token=${encodeURIComponent(token)}`, { method: 'POST' });
+      await revokeGrant(await decryptToken(env, encrypted));
     } catch (e) {
-      // Best-effort: still clear the local credential even if Google's
-      // revoke call fails or the token is undecryptable.
+      // Best-effort: still clear the local credential even if the token is undecryptable.
       console.error('drive: token revoke failed', e);
     }
   }
   await deleteSetting(env, 'drive_refresh_token');
   await deleteSetting(env, 'drive_backup_file_id');
-  await deleteSetting(env, 'drive_last_backup_at');
   await deleteSetting(env, 'drive_last_backup_error');
+  // drive_last_backup_at is kept so the Data tab can still show the last backup.
+  await recordDisconnect(env, 'manual');
 }
 
 async function getAccessToken(env: Env): Promise<string> {
@@ -226,11 +339,20 @@ async function getAccessToken(env: Env): Promise<string> {
     }),
   });
   if (!r.ok) {
-    if (r.status === 400 || r.status === 401) {
-      // invalid_grant and similar: the connection is dead, not transient.
+    const detail = (await r.json().catch(() => null)) as { error?: string } | null;
+    if (detail?.error === 'invalid_grant') {
+      // Expired or revoked by Google: the saved sign-in is dead for good.
       await deleteSetting(env, 'drive_refresh_token');
+      await recordDisconnect(env, 'expired');
+      throw new HttpError(
+        502,
+        'Google rejected the saved Drive sign-in, so Drive was disconnected. Reconnect in Manage → Data.'
+      );
     }
-    throw new HttpError(502, `Drive token refresh failed (${r.status}).`);
+    // Anything else (bad client secret, Google outage, ...) may be fixable or
+    // temporary, so keep the saved sign-in and just report the failure.
+    const code = detail?.error ? `: ${String(detail.error).slice(0, 60)}` : '';
+    throw new HttpError(502, `Drive token refresh failed (${r.status}${code}).`);
   }
   const j = (await r.json()) as { access_token?: string };
   if (!j.access_token) throw new HttpError(502, 'Drive token refresh returned no access token.');
@@ -288,7 +410,9 @@ export async function driveBackup(
       const detail = await upload.text().catch(() => '');
       // Best effort cleanup so a failed first backup does not leave an empty
       // orphan file in the user's Drive.
-      await fetch(`${DRIVE_API}/${fileId}`, { method: 'DELETE', headers: auth }).catch(() => undefined);
+      await fetch(`${DRIVE_API}/${fileId}`, { method: 'DELETE', headers: auth }).catch(
+        () => undefined
+      );
       throw new HttpError(502, `Drive upload failed (${upload.status}). ${detail.slice(0, 300)}`);
     }
 
@@ -335,16 +459,20 @@ export async function setDriveBackupError(env: Env, message: string): Promise<vo
  * in the same tab) it falls back to the previous behavior of redirecting the
  * current tab back into the app.
  */
-export function driveCallbackHtml(status: 'connected' | 'error', back: string): string {
-  const safeBack = JSON.stringify(back);
-  const safeStatus = JSON.stringify(status);
+export function driveCallbackHtml(
+  status: 'connected' | 'error',
+  back: string,
+  message = ''
+): string {
+  // JSON inside <script>: escape "<" so no value can close the script tag.
+  const js = (v: string) => JSON.stringify(v).replace(/</g, '\\u003c');
   return `<!doctype html>
 <html><head><meta charset="utf-8"><title>Google Drive</title></head>
 <body>
 <p>You can close this window.</p>
 <script>
 (function () {
-  var payload = { source: 'expense-manager-drive-oauth', status: ${safeStatus} };
+  var payload = { source: 'expense-manager-drive-oauth', status: ${js(status)}, message: ${js(message)} };
   try {
     if (window.opener) {
       window.opener.postMessage(payload, window.location.origin);
@@ -352,7 +480,7 @@ export function driveCallbackHtml(status: 'connected' | 'error', back: string): 
       return;
     }
   } catch (e) {}
-  window.location.replace(${safeBack});
+  window.location.replace(${js(back)});
 })();
 </script>
 </body></html>`;
