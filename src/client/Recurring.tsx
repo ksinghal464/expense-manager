@@ -12,7 +12,7 @@ import type {
   Category,
   Payee,
 } from '../shared/types';
-import { IconX } from './icons';
+import { IconPlus, IconX } from './icons';
 
 type Freq = RecurringRule['frequency'];
 
@@ -51,13 +51,13 @@ export function Recurring() {
 
   return (
     <main>
-      <div className="cardhead topbar">
+      <div className="cardhead topbar pagehead">
         <div>
           <h2>Recurring</h2>
           <p>Bills, salary, subscriptions — generated automatically.</p>
         </div>
         <button className="primary" onClick={() => setCreating(true)}>
-          ＋ New rule
+          <IconPlus size={16} /> New rule
         </button>
       </div>
 

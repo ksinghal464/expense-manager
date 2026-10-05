@@ -15,6 +15,7 @@ import { Empty, Err, Segmented, FieldsModal, ConfirmDialog } from './ui';
 import { ImportExport } from './ImportExport';
 import { TxRow } from './TxRow';
 import { AuditBody } from './auditFormat';
+import { IconPlus } from './icons';
 import type {
   Account,
   Category,
@@ -81,7 +82,7 @@ function SectionHead({
         <p>{sub}</p>
       </div>
       <button className="primary" onClick={onAdd}>
-        {addLabel}
+        <IconPlus size={16} /> {addLabel}
       </button>
     </div>
   );
@@ -118,7 +119,7 @@ function AccountsTab() {
         title="Accounts"
         sub="Balances and account-specific payment methods."
         onAdd={() => setCreating(true)}
-        addLabel="＋ Add account"
+        addLabel="Add account"
       />
       {accounts.map((a) => (
         <div className="manage-row" key={a.id}>
@@ -212,7 +213,7 @@ function CategoriesTab() {
         title="Categories"
         sub="Build a clear hierarchy for expenses and income."
         onAdd={() => setCreating(true)}
-        addLabel="＋ Add category"
+        addLabel="Add category"
       />
       <Segmented
         value={kind}
@@ -362,7 +363,7 @@ function MethodsTab() {
         title="Payment methods"
         sub="Methods are grouped by the account they belong to."
         onAdd={() => setCreating(true)}
-        addLabel="＋ Add payment method"
+        addLabel="Add payment method"
       />
       {accounts.map((a) => {
         const ms = methods.filter((m) => m.account_id === a.id);
@@ -444,7 +445,7 @@ function PayeesTab() {
         title="Payees"
         sub="People and places you transact with."
         onAdd={() => setCreating(true)}
-        addLabel="＋ Add payee"
+        addLabel="Add payee"
       />
       {payees.map((p) => (
         <div className="manage-row" key={p.id}>
@@ -504,7 +505,7 @@ function TagsTab() {
         title="Tags"
         sub="Flexible labels to slice your transactions."
         onAdd={() => setCreating(true)}
-        addLabel="＋ Add tag"
+        addLabel="Add tag"
       />
       {tags.map((t) => (
         <div className="manage-row" key={t.id}>

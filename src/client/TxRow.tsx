@@ -23,7 +23,7 @@ export function TxRow({
   const categoryLabel = categoryDisplayName(categories, t.category_id, t.category_name);
   return (
     <button
-      className={`tx${isRefund ? ' refund' : ''}${isTransfer ? ' transfer' : ''}`}
+      className={`tx${isRefund ? ' refund' : ''}${isTransfer ? ' transfer' : ''}${isIncome && !isRefund && !isTransfer ? ' income' : ''}`}
       onClick={onClick}
     >
       <div className="avatar">{avatarLetter(t.description, t.payee_name, t.category_name)}</div>

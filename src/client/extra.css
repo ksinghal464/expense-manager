@@ -63,7 +63,8 @@
   padding: 0;
 }
 .icon-svg {
-  display: block;
+  display: inline-block;
+  vertical-align: -0.18em;
   flex: none;
 }
 
@@ -1756,6 +1757,170 @@ h2 {
   font-weight: 700;
   padding: 8px 20px;
   border-radius: 10px;
+}
+
+/* ============ visual refresh ============
+   Calmer surfaces, consistent radii, hover/active feedback and tabular
+   figures for money. Colours only via tokens.css. */
+body {
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
+}
+.appbar {
+  border-bottom: 0;
+  padding-bottom: 0;
+  margin-bottom: 18px;
+}
+.card,
+.framebox {
+  border-radius: var(--radius-lg);
+  border-color: var(--border);
+  box-shadow: var(--shadow-card);
+}
+
+/* money: fixed-width digits so columns line up */
+.txamountcol,
+.balance b,
+.framerow b,
+.bar b,
+.detailamount b,
+.filterline b,
+.amount input,
+.recurringrow b {
+  font-variant-numeric: tabular-nums;
+}
+
+/* buttons */
+.primary,
+.save {
+  background: var(--accent);
+  color: var(--on-accent);
+}
+.primary:hover:not(:disabled),
+.save:hover:not(:disabled) {
+  filter: brightness(1.08);
+}
+.primary:active:not(:disabled),
+.save:active:not(:disabled),
+.outline:active:not(:disabled) {
+  transform: translateY(1px);
+}
+.outline:hover:not(:disabled) {
+  background: var(--surface-hover);
+  border-color: var(--border-strong);
+}
+.danger:hover:not(:disabled) {
+  filter: brightness(0.97);
+  border-color: var(--danger);
+}
+button:disabled {
+  cursor: not-allowed;
+}
+.primary .icon-svg,
+.save .icon-svg {
+  margin-right: 2px;
+}
+
+/* inputs */
+.field input,
+.field select,
+.field textarea,
+.picker {
+  min-height: 40px;
+  border-radius: var(--radius-sm);
+  transition:
+    border-color 0.15s ease,
+    box-shadow 0.15s ease;
+}
+.field input:hover,
+.field select:hover,
+.picker:hover {
+  border-color: var(--text-4);
+}
+
+/* transaction rows: tinted avatar by type */
+.tx {
+  border-radius: var(--radius-sm);
+}
+.tx .avatar {
+  background: var(--muted-bg);
+  color: var(--text-2);
+}
+.tx.income .avatar {
+  background: var(--positive-soft);
+  color: var(--positive);
+}
+.tx.transfer .avatar {
+  background: var(--accent-soft);
+  color: var(--accent-strong);
+}
+.tx.refund .avatar {
+  background: var(--positive-soft);
+  color: var(--warn);
+}
+
+/* new-transaction type picker */
+.typechoice button {
+  transition:
+    border-color 0.15s ease,
+    background-color 0.15s ease;
+}
+.typechoice button:hover:not(:disabled):not(.chosen) {
+  border-color: var(--border-strong);
+  background: var(--surface-hover);
+}
+.typechoice .typeicon {
+  display: block;
+  margin-bottom: 6px;
+  color: var(--text-3);
+}
+.typechoice .chosen .typeicon {
+  color: var(--danger);
+}
+.typechoice .chosen.incomechoice .typeicon {
+  color: var(--positive);
+}
+.typechoice .chosen.transferchoice .typeicon {
+  color: var(--accent);
+}
+
+/* native file pickers (Data tab) */
+input[type='file'] {
+  color: var(--text-3);
+  font-size: var(--text-sm);
+}
+input[type='file']::file-selector-button {
+  margin-right: 10px;
+  padding: 7px 12px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  color: var(--text-2);
+  font: inherit;
+  font-weight: 650;
+  cursor: pointer;
+}
+input[type='file']::file-selector-button:hover {
+  background: var(--surface-hover);
+}
+
+/* pills and segmented controls */
+.manage-tabs button:hover:not(.selected),
+.segmented button:hover:not(.selected) {
+  background: var(--surface-hover);
+  color: var(--text);
+}
+.toast {
+  border-radius: var(--radius-full);
+  padding: 10px 20px;
+}
+
+@media (min-width: 900px) {
+  /* the page title already sits in the top bar */
+  .pagehead h2 {
+    display: none;
+  }
 }
 
 /* ============ responsive shell ============

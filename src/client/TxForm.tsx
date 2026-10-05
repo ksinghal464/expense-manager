@@ -18,6 +18,7 @@ import {
 import { Field, SaveButton, Err, CategoryPicker, AttachmentPreview } from './ui';
 import { DateTimeField } from './ClockPicker';
 import type { Category, PaymentMethod, Account, Payee, TxStatus, SplitRow } from '../shared/types';
+import { IconArrowDownLeft, IconArrowUpRight, IconPlus, IconTransfer } from './icons';
 
 type SplitDraft = {
   key: string;
@@ -369,7 +370,8 @@ export function TxForm({
           disabled={!!transferId}
           onClick={() => setType('expense')}
         >
-          − <b>Expense</b>
+          <IconArrowUpRight size={18} className="typeicon" />
+          <b>Expense</b>
           <span>Money going out</span>
         </button>
         <button
@@ -378,7 +380,8 @@ export function TxForm({
           disabled={!!transferId}
           onClick={() => setType('income')}
         >
-          ＋ <b>Income</b>
+          <IconArrowDownLeft size={18} className="typeicon" />
+          <b>Income</b>
           <span>Money coming in</span>
         </button>
         <button
@@ -388,7 +391,8 @@ export function TxForm({
           title={accounts.length < 2 ? 'Add a second account to transfer between accounts' : ''}
           onClick={() => setType('transfer')}
         >
-          ⇄ <b>Transfer</b>
+          <IconTransfer size={18} className="typeicon" />
+          <b>Transfer</b>
           <span>Between your accounts</span>
         </button>
       </div>
@@ -718,7 +722,7 @@ export function TxForm({
                     ])
                   }
                 >
-                  ＋ Add split part
+                  <IconPlus size={14} /> Add split part
                 </button>
                 {splits.length > 0 && (
                   <div className={`splitsum${splitMismatch ? ' bad' : ' ok'}`}>
@@ -789,7 +793,13 @@ export function TxForm({
               ))}
               <div className="attachform">
                 <label className="outline attachpick">
-                  {attachBusy ? 'Reading…' : '＋ Add photo / file'}
+                  {attachBusy ? (
+                    'Reading…'
+                  ) : (
+                    <>
+                      <IconPlus size={14} /> Add photo / file
+                    </>
+                  )}
                   <input
                     type="file"
                     accept="image/*,application/pdf"

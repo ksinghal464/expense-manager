@@ -8,6 +8,7 @@ import { Empty, Err } from './ui';
 import { TxRow } from './TxRow';
 import { periodStart, PERIOD_PRESETS } from '../shared/period';
 import type { CategoryTotal, Dashboard as DashboardData } from '../shared/types';
+import { IconPlus } from './icons';
 
 type FrameData = {
   label: string;
@@ -608,10 +609,12 @@ export function Dashboard() {
           <span>Add widget:</span>
           {availablePresets.map((p) => (
             <button key={p.key} onClick={() => addWidget(p.key)}>
-              ＋ {p.label}
+              <IconPlus size={13} /> {p.label}
             </button>
           ))}
-          <button onClick={() => setShowCustom((v) => !v)}>＋ Custom range</button>
+          <button onClick={() => setShowCustom((v) => !v)}>
+            <IconPlus size={13} /> Custom range
+          </button>
         </div>
       )}
       {showCustom && (
@@ -704,7 +707,7 @@ export function Dashboard() {
             .filter((d) => !activeBreakdowns.includes(d))
             .map((d) => (
               <button key={d} onClick={() => setActiveBreakdowns((cur) => [...cur, d])}>
-                ＋ {BREAKDOWN_DEFS[d].title}
+                <IconPlus size={13} /> {BREAKDOWN_DEFS[d].title}
               </button>
             ))}
         </div>

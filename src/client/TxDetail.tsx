@@ -12,6 +12,7 @@ import {
 import { Empty, Err, ConfirmDialog, AttachmentPreview } from './ui';
 import { AuditBody } from './auditFormat';
 import type { AuditEntry } from '../shared/types';
+import { IconPlus, IconUndo } from './icons';
 
 export function TxDetail({
   id,
@@ -233,7 +234,7 @@ export function TxDetail({
             </button>
             {tx.transaction_type === 'expense' && !tx.refunds_transaction_id && !isTransfer && (
               <button className="outline" onClick={() => open({ kind: 'tx', refundOf: id })}>
-                ↩ Add refund
+                <IconUndo size={16} /> Add refund
               </button>
             )}
             <button className="danger" onClick={() => setConfirm(true)}>
@@ -353,11 +354,7 @@ function Attachments({
       {attach.map((a) => (
         <div className="attachrow" key={a.id}>
           {a.kind === 'image' ? (
-            <button
-              type="button"
-              className="attachthumb"
-              onClick={() => setPreviewAttach(a)}
-            >
+            <button type="button" className="attachthumb" onClick={() => setPreviewAttach(a)}>
               <img src={a.url} alt={a.file_name} />
             </button>
           ) : (
@@ -373,7 +370,13 @@ function Attachments({
       ))}
       <div className="attachform">
         <label className="outline attachpick">
-          {busy ? 'Uploading…' : '＋ Add photo / file'}
+          {busy ? (
+            'Uploading…'
+          ) : (
+            <>
+              <IconPlus size={14} /> Add photo / file
+            </>
+          )}
           <input
             type="file"
             accept="image/*,application/pdf"

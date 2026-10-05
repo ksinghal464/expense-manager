@@ -60,6 +60,22 @@ export const IconSliders = make(
   </>
 );
 export const IconPlus = make('Plus', <path d="M12 5v14M5 12h14" />);
+export const IconArrowUpRight = make('ArrowUpRight', <path d="M7 17 17 7M8 7h9v9" />);
+export const IconArrowDownLeft = make('ArrowDownLeft', <path d="M17 7 7 17M16 17H7V8" />);
+export const IconTransfer = make(
+  'Transfer',
+  <>
+    <path d="M4 8h15l-4-4" />
+    <path d="M20 16H5l4 4" />
+  </>
+);
+export const IconUndo = make(
+  'Undo',
+  <>
+    <path d="M9 14 4 9l5-5" />
+    <path d="M4 9h11a5 5 0 0 1 0 10h-3" />
+  </>
+);
 export const IconX = make('X', <path d="M18 6 6 18M6 6l12 12" />);
 export const IconSearch = make(
   'Search',
