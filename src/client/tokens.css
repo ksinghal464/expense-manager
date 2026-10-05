@@ -1,0 +1,134 @@
+/* Design tokens. Light values on :root; dark overrides on [data-theme='dark'].
+   index.html sets data-theme before first paint (stored choice, else the
+   system setting), so components only ever reference these variables. */
+
+:root {
+  color-scheme: light;
+
+  /* surfaces */
+  --bg: #f5f7fa;
+  --surface: #ffffff;
+  --surface-2: #f7f9fb;
+  --surface-hover: #f1f5f9;
+  --input-bg: #fbfcfd;
+  --muted-bg: #eef3f8;
+
+  /* lines */
+  --border: #e5eaf0;
+  --divider: #edf0f4;
+  --border-strong: #d8e0e9;
+
+  /* text */
+  --text: #142033;
+  --text-2: #4a586c;
+  --text-3: #7b8797;
+  --text-4: #9aa6b6;
+
+  /* brand / interactive */
+  --accent: #1769d1;
+  --accent-strong: #1f5fa8;
+  --accent-soft: #eef4fb;
+  --accent-border: #b9d3f2;
+  --accent-bar: #4c83c3;
+  --accent-bar-2: #8fb1d9;
+  --accent-glow: #1677d23a;
+  --on-accent: #ffffff;
+  --focus: #6c9bd1;
+  --focus-ring: #6c9bd122;
+  /* high-contrast fill for selected chips/tabs and the toast */
+  --ink: #17263a;
+  --on-ink: #ffffff;
+
+  /* status */
+  --positive: #16845a;
+  --positive-soft: #eaf5ef;
+  --positive-border: #8dccaa;
+  --danger: #c23b47;
+  --danger-soft: #fff5f6;
+  --danger-border: #f2cdd2;
+  --warn: #b8842f;
+  --warn-strong: #8a621f;
+
+  /* elevation */
+  --shade-1: #1720330a;
+  --shade-2: #17203325;
+  --shade-3: #17203333;
+  --scrim: #101a2944;
+  --shadow-card: 0 3px 12px var(--shade-1);
+  --shadow-pop: 0 16px 36px var(--shade-2);
+
+  /* shape */
+  --radius-sm: 10px;
+  --radius-md: 12px;
+  --radius-lg: 16px;
+  --radius-xl: 20px;
+  --radius-full: 999px;
+
+  /* spacing (4px grid) */
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 20px;
+  --space-6: 24px;
+  --space-8: 32px;
+
+  /* type */
+  --font-sans:
+    Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto,
+    sans-serif;
+  --font-mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  --text-xs: 11px;
+  --text-sm: 13px;
+  --text-md: 15px;
+  --text-lg: 17px;
+  --text-xl: 22px;
+  --text-2xl: 28px;
+}
+
+:root[data-theme='dark'] {
+  color-scheme: dark;
+
+  --bg: #0d1219;
+  --surface: #151c26;
+  --surface-2: #19212d;
+  --surface-hover: #1e2835;
+  --input-bg: #111821;
+  --muted-bg: #212b39;
+
+  --border: #253040;
+  --divider: #1e2733;
+  --border-strong: #324054;
+
+  --text: #e6ebf2;
+  --text-2: #b3becc;
+  --text-3: #8592a4;
+  --text-4: #637084;
+
+  --accent: #4b93ea;
+  --accent-strong: #84b5f1;
+  --accent-soft: #172a42;
+  --accent-border: #2a4a72;
+  --accent-bar: #5b93d6;
+  --accent-bar-2: #3a6697;
+  --accent-glow: #4b93ea40;
+  --on-accent: #ffffff;
+  --focus: #5b93d6;
+  --focus-ring: #5b93d640;
+  --ink: #e6ebf2;
+  --on-ink: #0d1219;
+
+  --positive: #42c08c;
+  --positive-soft: #12281f;
+  --positive-border: #2b6a4f;
+  --danger: #f07480;
+  --danger-soft: #2b1619;
+  --danger-border: #5c2b32;
+  --warn: #d9a75b;
+  --warn-strong: #ebc078;
+
+  --shade-1: #00000040;
+  --shade-2: #00000080;
+  --shade-3: #00000099;
+  --scrim: #000000a0;
+}

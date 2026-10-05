@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import type { Category } from '../shared/types';
 import { categoryRoots, categoryDisplayName } from './lib';
+import { IconX } from './icons';
 
 export function Overlay({
   children,
@@ -40,7 +41,9 @@ export function ModalHead({
         <h2>{title}</h2>
         {sub ? <p>{sub}</p> : null}
       </div>
-      <button onClick={onClose}>×</button>
+      <button onClick={onClose} aria-label="Close" title="Close">
+        <IconX size={20} />
+      </button>
     </div>
   );
 }

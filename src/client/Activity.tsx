@@ -4,6 +4,7 @@ import { api } from './api';
 import type { SearchOptions } from './api';
 import { useDebounce, categoryRoots, categoryChildren, categoryDisplayName, money } from './lib';
 import { Empty } from './ui';
+import { IconFilter, IconSearch, IconX } from './icons';
 import { TxRow } from './TxRow';
 import {
   istDateTimeToUTC,
@@ -322,7 +323,9 @@ export function Activity() {
 
       <div className="searchwrap">
         <div className="search">
-          <span>⌕</span>
+          <span>
+            <IconSearch size={18} />
+          </span>
           <input
             autoComplete="off"
             value={query}
@@ -338,12 +341,14 @@ export function Activity() {
             placeholder="Search anything…"
           />
           <button
+            aria-label="Clear search"
+            title="Clear search"
             onClick={() => {
               setQuery('');
               setPopupOpen(false);
             }}
           >
-            ×
+            <IconX size={18} />
           </button>
         </div>
         {options && query.trim() && popupOpen && (
@@ -427,7 +432,7 @@ export function Activity() {
             className={`outline filtersbtn${advancedFilterCount ? ' active' : ''}`}
             onClick={() => setShowFilters((v) => !v)}
           >
-            ⚙ Filters{advancedFilterCount ? ` (${advancedFilterCount})` : ''}
+            <IconFilter size={14} /> Filters{advancedFilterCount ? ` (${advancedFilterCount})` : ''}
           </button>
         </div>
       </div>
