@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { useFreshPage } from './useFreshPage';
 import { api } from './api';
-import { useStore } from './store';
+import { useStore, type ManageTab } from './store';
 import {
   money,
   fmtDateTime,
@@ -26,7 +26,7 @@ import type {
   TxView,
 } from '../shared/types';
 
-type Tab = 'accounts' | 'categories' | 'methods' | 'payees' | 'tags' | 'data' | 'trash' | 'audit';
+type Tab = ManageTab;
 
 const TABS: [Tab, string][] = [
   ['accounts', 'Accounts'],
@@ -40,7 +40,8 @@ const TABS: [Tab, string][] = [
 ];
 
 export function Manage() {
-  const [tab, setTab] = useState<Tab>('accounts');
+  const { route, setManageTab: setTab } = useStore();
+  const tab = route.tab;
   return (
     <main>
       <div className="manage-tabs">

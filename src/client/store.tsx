@@ -1,5 +1,23 @@
-import React, { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
+import React, {
+  createContext,
+  useCallback,
+  useContext,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from 'react';
 import { api, ApiError } from './api';
+import {
+  parseRoute,
+  routeUrl,
+  pageRoute,
+  type ActivityFilter,
+  type ActivityState,
+  type ManageTab,
+  type Page,
+  type Route,
+} from './route';
 import type {
   Account,
   Category,
@@ -10,22 +28,7 @@ import type {
   TxView,
 } from '../shared/types';
 
-export type Page = 'dashboard' | 'activity' | 'recurring' | 'manage';
-
-export type ActivityFilter = {
-  type?: 'expense' | 'income';
-  accountId?: string;
-  categoryId?: string | null;
-  /** With categoryId: also match transactions in its subcategories. */
-  includeSubcategories?: boolean;
-  methodId?: string;
-  payeeId?: string;
-  status?: 'cleared' | 'uncleared';
-  tag?: string;
-  from?: string;
-  to?: string | null;
-  label?: string;
-};
+export type { ActivityFilter, ActivityState, ManageTab, Page, Route };
 
 export type Modal =
   | { kind: 'tx'; refundOf?: string }
@@ -51,12 +54,17 @@ export interface Store {
   tags: Tag[];
   suggestions: string[];
   transactions: TxView[];
+  /** Current location, mirrored in the browser URL. */
+  route: Route;
   page: Page;
   modal: Modal;
+  /** Switch to a page (new history entry). No-op when already there. */
   go: (p: Page) => void;
+  /** Show Activity with the given filter (new history entry). */
   openActivity: (filter: ActivityFilter) => void;
-  pendingActivityFilter: ActivityFilter | null;
-  clearActivityFilter: () => void;
+  /** Patch the Activity filter/search/page in place (replaces the history entry). */
+  setActivity: (patch: Partial<ActivityState>) => void;
+  setManageTab: (tab: ManageTab) => void;
   open: (m: Modal) => void;
   close: () => void;
   refresh: () => Promise<void>;
@@ -105,14 +113,163 @@ async function fetchAllTransactions(): Promise<TxView[]> {
   return all;
 }
 
+// ---- browser history ----
+// The page, Activity filters, Manage tab and an open transaction detail live
+// in the URL, so reloads and the back button keep your place. Other modals
+// (forms, master-data dialogs) aren't in the URL, but opening one pushes a
+// same-URL entry marked `k: 'modal'` so the back button closes it.
+type HistState = { k?: 'modal' | 'detail' } | null;
+
+function currentRoute(): Route {
+  return parseRoute(window.location.pathname, window.location.search);
+}
+function currentKind(): 'modal' | 'detail' | undefined {
+  return (window.history.state as HistState)?.k;
+}
+
+// A reload can't restore a non-URL modal, so step back off its history entry once.
+let droppedStaleModalEntry = false;
+
 export function StoreProvider({ children }: { children: React.ReactNode }) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [needsLogin, setNeedsLogin] = useState(false);
-  const [page, setPage] = useState<Page>('dashboard');
-  const [pendingActivityFilter, setPendingActivityFilter] = useState<ActivityFilter | null>(null);
-  const [modal, setModal] = useState<Modal>(null);
+  const [route, setRoute] = useState<Route>(currentRoute);
+  // Non-URL modal shown on top of the page (and on top of any detail in the URL).
+  const [overlay, setOverlay] = useState<Modal>(null);
   const [notify, setNotify] = useState('');
+
+  // history.back() is async; anything navigating meanwhile waits for its popstate,
+  // otherwise e.g. close() followed by open() would push and then pop the new entry.
+  const backPending = useRef(false);
+  const queued = useRef<(() => void)[]>([]);
+  const whenSettled = useCallback((fn: () => void) => {
+    if (backPending.current) queued.current.push(fn);
+    else fn();
+  }, []);
+  const back = useCallback(() => {
+    backPending.current = true;
+    window.history.back();
+  }, []);
+
+  useEffect(() => {
+    const onPop = () => {
+      backPending.current = false;
+      setRoute(currentRoute());
+      if (currentKind() !== 'modal') setOverlay(null);
+      const q = queued.current;
+      queued.current = [];
+      q.forEach((fn) => fn());
+    };
+    window.addEventListener('popstate', onPop);
+    if (!droppedStaleModalEntry && currentKind() === 'modal') {
+      droppedStaleModalEntry = true;
+      back();
+    }
+    return () => window.removeEventListener('popstate', onPop);
+  }, [back]);
+
+  const navigate = useCallback(
+    (update: (r: Route) => Route, mode: 'push' | 'replace', kind?: 'detail') =>
+      whenSettled(() => {
+        const cur = currentRoute();
+        const next = update(cur);
+        const url = routeUrl(next);
+        if (mode === 'replace') {
+          window.history.replaceState(window.history.state, '', url);
+        } else {
+          if (url === window.location.pathname + window.location.search) return;
+          window.history.pushState(kind ? { k: kind } : null, '', url);
+          if (next.page !== cur.page) window.scrollTo(0, 0);
+        }
+        setRoute(currentRoute());
+      }),
+    [whenSettled]
+  );
+
+  const close = useCallback(
+    () =>
+      whenSettled(() => {
+        const k = currentKind();
+        if (k === 'modal' || k === 'detail') {
+          back();
+          return;
+        }
+        // Opened by a reload or a pasted link: nothing of ours to go back to.
+        setOverlay(null);
+        if (currentRoute().tx)
+          navigate((r) => ({ ...r, tx: undefined, trash: undefined }), 'replace');
+      }),
+    [whenSettled, back, navigate]
+  );
+
+  const open = useCallback(
+    (m: Modal) => {
+      if (!m) return close();
+      if (m.kind === 'detail') {
+        whenSettled(() => setOverlay(null));
+        navigate((r) => ({ ...r, tx: m.id, trash: m.fromTrash || undefined }), 'push', 'detail');
+        return;
+      }
+      whenSettled(() => {
+        if (currentKind() !== 'modal') {
+          window.history.pushState(
+            { k: 'modal' },
+            '',
+            window.location.pathname + window.location.search
+          );
+        }
+        setOverlay(m);
+      });
+    },
+    [close, navigate, whenSettled]
+  );
+
+  // Leaving the page while a form is open: drop the form's history entry too,
+  // otherwise Back would later land on it with nothing left to show.
+  const dropOverlay = useCallback(
+    () =>
+      whenSettled(() => {
+        setOverlay(null);
+        if (currentKind() === 'modal') back();
+      }),
+    [whenSettled, back]
+  );
+
+  const go = useCallback(
+    (page: Page) => {
+      dropOverlay();
+      navigate((r) => (r.page === page ? r : pageRoute(page)), 'push');
+    },
+    [navigate, dropOverlay]
+  );
+
+  const openActivity = useCallback(
+    (filter: ActivityFilter) => {
+      dropOverlay();
+      navigate(() => pageRoute('activity', filter), 'push');
+    },
+    [navigate, dropOverlay]
+  );
+
+  const setActivity = useCallback(
+    (patch: Partial<ActivityState>) =>
+      navigate(
+        (r) => (r.page === 'activity' ? { ...r, activity: { ...r.activity, ...patch } } : r),
+        'replace'
+      ),
+    [navigate]
+  );
+
+  const setManageTab = useCallback(
+    (tab: ManageTab) => navigate((r) => ({ ...r, page: 'manage', tab }), 'push'),
+    [navigate]
+  );
+
+  const modal = useMemo<Modal>(
+    () => overlay ?? (route.tx ? { kind: 'detail', id: route.tx, fromTrash: route.trash } : null),
+    [overlay, route.tx, route.trash]
+  );
 
   const [accounts, setAccounts] = useState<Account[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
@@ -156,13 +313,6 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     window.setTimeout(() => setNotify((cur) => (cur === msg ? '' : cur)), 2600);
   }, []);
 
-  const openActivity = useCallback((filter: ActivityFilter) => {
-    setPendingActivityFilter(filter);
-    setModal(null);
-    setPage('activity');
-  }, []);
-  const clearActivityFilter = useCallback(() => setPendingActivityFilter(null), []);
-
   const value = useMemo<Store>(
     () => ({
       loading,
@@ -175,14 +325,15 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       tags,
       suggestions,
       transactions,
-      page,
+      route,
+      page: route.page,
       modal,
-      go: setPage,
+      go,
       openActivity,
-      pendingActivityFilter,
-      clearActivityFilter,
-      open: setModal,
-      close: () => setModal(null),
+      setActivity,
+      setManageTab,
+      open,
+      close,
       refresh,
       toast,
       notify,
@@ -198,11 +349,14 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       tags,
       suggestions,
       transactions,
-      page,
+      route,
       modal,
+      go,
       openActivity,
-      pendingActivityFilter,
-      clearActivityFilter,
+      setActivity,
+      setManageTab,
+      open,
+      close,
       refresh,
       toast,
       notify,

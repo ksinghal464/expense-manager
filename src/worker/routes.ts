@@ -1829,11 +1829,11 @@ export async function route(request: Request, url: URL, env: Env): Promise<Respo
     const code = url.searchParams.get('code');
     const state = url.searchParams.get('state');
     const error = url.searchParams.get('error');
-    const back = `${url.protocol}//${url.host}/?manage=data`;
+    const back = `${url.protocol}//${url.host}/manage/data?`;
     const failed = (message: string) =>
       res(
         textBody(
-          driveCallbackHtml('error', `${back}&drive=error`, message),
+          driveCallbackHtml('error', `${back}drive=error`, message),
           'text/html; charset=utf-8'
         )
       );
@@ -1846,10 +1846,7 @@ export async function route(request: Request, url: URL, env: Env): Promise<Respo
       return failed(e instanceof HttpError ? e.message : 'Google Drive connection failed.');
     }
     return res(
-      textBody(
-        driveCallbackHtml('connected', `${back}&drive=connected`),
-        'text/html; charset=utf-8'
-      )
+      textBody(driveCallbackHtml('connected', `${back}drive=connected`), 'text/html; charset=utf-8')
     );
   }
   if (m === 'POST' && p === '/api/drive/disconnect') {

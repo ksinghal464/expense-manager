@@ -1,5 +1,5 @@
 import { useDeferredValue, useEffect, useMemo, useState } from 'react';
-import { useStore } from './store';
+import { useStore, type ActivityFilter } from './store';
 import { api } from './api';
 import type { SearchOptions } from './api';
 import { useDebounce, categoryRoots, categoryChildren, categoryDisplayName, money } from './lib';
@@ -49,56 +49,38 @@ const DATE_PRESETS: { key: string; label: string; from: () => string; to: () => 
   ];
 
 export function Activity() {
-  const {
-    transactions,
-    accounts,
-    methods,
-    categories,
-    payees,
-    tags,
-    open,
-    pendingActivityFilter,
-    clearActivityFilter,
-  } = useStore();
-  const [query, setQuery] = useState('');
+  const { transactions, accounts, methods, categories, payees, tags, open, route, setActivity } =
+    useStore();
+  // Filters, search and list page live in the URL (see route.ts) so a reload or
+  // the back button returns to the same view.
+  const af = route.activity;
+  const type = af.type || 'all';
+  const accountId = af.accountId || '';
+  const categoryId = af.categoryId;
+  const includeSubcategories = !!af.includeSubcategories;
+  const methodId = af.methodId || '';
+  const payeeId = af.payeeId || '';
+  const status = af.status || '';
+  const tag = af.tag || '';
+  const from = af.from || '';
+  const to = af.to ?? null;
+  const filterLabel = af.label || '';
+  /** Change filters and go back to the first page of results. */
+  const setFilter = (patch: Partial<ActivityFilter>) => setActivity({ ...patch, page: undefined });
+
+  // The search box is local so typing stays instant; the URL follows once typing pauses.
+  const [query, setQuery] = useState(af.q || '');
   const deferredQuery = useDeferredValue(query);
-  const [type, setType] = useState<'all' | 'expense' | 'income'>('all');
-  const [accountId, setAccountId] = useState('');
-  const [categoryId, setCategoryId] = useState<string | null | undefined>(undefined);
-  const [includeSubcategories, setIncludeSubcategories] = useState(false);
-  const [methodId, setMethodId] = useState('');
-  const [payeeId, setPayeeId] = useState('');
-  const [status, setStatus] = useState<'' | 'cleared' | 'uncleared'>('');
-  const [tag, setTag] = useState('');
-  const [from, setFrom] = useState('');
-  const [to, setTo] = useState<string | null>(null);
-  const [filterLabel, setFilterLabel] = useState('');
   const [showFilters, setShowFilters] = useState(false);
   const debounced = useDebounce(query, 180);
   const lastTerm = useMemo(() => debounced.trim().split(/\s+/).pop() || '', [debounced]);
   const [options, setOptions] = useState<SearchOptions | null>(null);
   const [popupOpen, setPopupOpen] = useState(false);
 
-  // Apply a filter handed off from the Dashboard (e.g. "this week's expenses",
-  // an account balance, or a category bar), then clear it so it doesn't stick
-  // around on the next manual visit to Activity.
   useEffect(() => {
-    if (!pendingActivityFilter) return;
-    const f = pendingActivityFilter;
-    setType(f.type || 'all');
-    setAccountId(f.accountId || '');
-    setCategoryId(f.categoryId);
-    setIncludeSubcategories(!!f.includeSubcategories);
-    setMethodId(f.methodId || '');
-    setPayeeId(f.payeeId || '');
-    setStatus(f.status || '');
-    setTag(f.tag || '');
-    setFrom(f.from || '');
-    setTo(f.to ?? null);
-    setFilterLabel(f.label || '');
-    setShowFilters(false);
-    clearActivityFilter();
-  }, [pendingActivityFilter, clearActivityFilter]);
+    const q = debounced.trim();
+    if (q !== (route.activity.q || '')) setActivity({ q: q || undefined, page: undefined });
+  }, [debounced]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // server-side search suggestions while typing (based on just the word
   // currently being composed, so accumulating multiple terms still gets
@@ -115,19 +97,20 @@ export function Activity() {
       .catch(() => setOptions(null));
   }, [lastTerm]);
 
-  const clearAllFilters = () => {
-    setType('all');
-    setAccountId('');
-    setCategoryId(undefined);
-    setIncludeSubcategories(false);
-    setMethodId('');
-    setPayeeId('');
-    setStatus('');
-    setTag('');
-    setFrom('');
-    setTo(null);
-    setFilterLabel('');
-  };
+  const clearAllFilters = () =>
+    setFilter({
+      type: undefined,
+      accountId: undefined,
+      categoryId: undefined,
+      includeSubcategories: undefined,
+      methodId: undefined,
+      payeeId: undefined,
+      status: undefined,
+      tag: undefined,
+      from: undefined,
+      to: undefined,
+      label: undefined,
+    });
 
   const accountMethods = useMemo(
     () => (accountId ? methods.filter((m) => m.account_id === accountId) : methods),
@@ -258,9 +241,9 @@ export function Activity() {
   }, [filtered, narrowsWithinAccount, accounts]);
 
   // Limit DOM work only; balances and totals above still use every matching row.
-  const [pagination, setPagination] = useState({ filtered, page: 0 });
-  if (pagination.filtered !== filtered) setPagination({ filtered, page: 0 });
   const pageCount = Math.max(1, Math.ceil(filtered.length / 50));
+  const listPage = Math.min(af.page || 0, pageCount - 1);
+  const setListPage = (p: number) => setActivity({ page: p || undefined });
 
   // Each group also carries a short singular tag (shown on every suggestion
   // button) so identical values from different fields — e.g. a "Other"
@@ -324,7 +307,10 @@ export function Activity() {
     <main>
       <div className="accountscope">
         <span>Viewing</span>
-        <select value={accountId} onChange={(e) => setAccountId(e.target.value)}>
+        <select
+          value={accountId}
+          onChange={(e) => setFilter({ accountId: e.target.value || undefined })}
+        >
           <option value="">All accounts</option>
           {accounts.map((a) => (
             <option key={a.id} value={a.id}>
@@ -431,7 +417,7 @@ export function Activity() {
               <button
                 key={id}
                 className={type === id ? 'selected' : ''}
-                onClick={() => setType(id)}
+                onClick={() => setFilter({ type: id === 'all' ? undefined : id })}
               >
                 {l}
               </button>
@@ -453,10 +439,7 @@ export function Activity() {
               <button
                 key={p.key}
                 type="button"
-                onClick={() => {
-                  setFrom(p.from());
-                  setTo(p.to());
-                }}
+                onClick={() => setFilter({ from: p.from(), to: p.to() })}
               >
                 {p.label}
               </button>
@@ -465,7 +448,10 @@ export function Activity() {
           <div className="filtergrid">
             <label className="field">
               <span>Payment method</span>
-              <select value={methodId} onChange={(e) => setMethodId(e.target.value)}>
+              <select
+                value={methodId}
+                onChange={(e) => setFilter({ methodId: e.target.value || undefined })}
+              >
                 <option value="">Any method</option>
                 {accountMethods.map((m) => (
                   <option key={m.id} value={m.id}>
@@ -480,8 +466,10 @@ export function Activity() {
                 value={categoryId === undefined ? '' : (categoryId ?? '__uncat')}
                 onChange={(e) => {
                   const v = e.target.value;
-                  setCategoryId(v === '' ? undefined : v === '__uncat' ? null : v);
-                  setIncludeSubcategories(false);
+                  setFilter({
+                    categoryId: v === '' ? undefined : v === '__uncat' ? null : v,
+                    includeSubcategories: undefined,
+                  });
                 }}
               >
                 <option value="">Any category</option>
@@ -500,7 +488,10 @@ export function Activity() {
             </label>
             <label className="field">
               <span>Payee / payer</span>
-              <select value={payeeId} onChange={(e) => setPayeeId(e.target.value)}>
+              <select
+                value={payeeId}
+                onChange={(e) => setFilter({ payeeId: e.target.value || undefined })}
+              >
                 <option value="">Anyone</option>
                 {payees.map((p) => (
                   <option key={p.id} value={p.id}>
@@ -513,7 +504,9 @@ export function Activity() {
               <span>Status</span>
               <select
                 value={status}
-                onChange={(e) => setStatus(e.target.value as '' | 'cleared' | 'uncleared')}
+                onChange={(e) =>
+                  setFilter({ status: (e.target.value || undefined) as ActivityFilter['status'] })
+                }
               >
                 <option value="">Any status</option>
                 <option value="cleared">Cleared</option>
@@ -522,7 +515,7 @@ export function Activity() {
             </label>
             <label className="field">
               <span>Tag</span>
-              <select value={tag} onChange={(e) => setTag(e.target.value)}>
+              <select value={tag} onChange={(e) => setFilter({ tag: e.target.value || undefined })}>
                 <option value="">Any tag</option>
                 {tags.map((t) => (
                   <option key={t.id} value={t.name}>
@@ -536,7 +529,9 @@ export function Activity() {
               <input
                 type="date"
                 value={toDateInput(from)}
-                onChange={(e) => setFrom(e.target.value ? fromDateInput(e.target.value) : '')}
+                onChange={(e) =>
+                  setFilter({ from: e.target.value ? fromDateInput(e.target.value) : undefined })
+                }
               />
             </label>
             <label className="field">
@@ -544,7 +539,9 @@ export function Activity() {
               <input
                 type="date"
                 value={to ? toDateInput(to) : ''}
-                onChange={(e) => setTo(e.target.value ? endOfDayIso(e.target.value) : null)}
+                onChange={(e) =>
+                  setFilter({ to: e.target.value ? endOfDayIso(e.target.value) : undefined })
+                }
               />
             </label>
           </div>
@@ -561,7 +558,7 @@ export function Activity() {
       )}
 
       <section className="card activity-card">
-        {filtered.slice(pagination.page * 50, (pagination.page + 1) * 50).map((t) => (
+        {filtered.slice(listPage * 50, (listPage + 1) * 50).map((t) => (
           <TxRow
             key={t.id}
             t={t}
@@ -577,18 +574,18 @@ export function Activity() {
           <div className="list-pagination" role="navigation" aria-label="Activity pages">
             <button
               className="outline"
-              disabled={pagination.page === 0}
-              onClick={() => setPagination((p) => ({ ...p, page: p.page - 1 }))}
+              disabled={listPage === 0}
+              onClick={() => setListPage(listPage - 1)}
             >
               Previous
             </button>
             <span>
-              Page {pagination.page + 1} of {pageCount}
+              Page {listPage + 1} of {pageCount}
             </span>
             <button
               className="outline"
-              disabled={pagination.page + 1 >= pageCount}
-              onClick={() => setPagination((p) => ({ ...p, page: p.page + 1 }))}
+              disabled={listPage + 1 >= pageCount}
+              onClick={() => setListPage(listPage + 1)}
             >
               Next
             </button>
