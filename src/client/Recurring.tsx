@@ -12,6 +12,7 @@ import type {
   Category,
   Payee,
 } from '../shared/types';
+import { IconX } from './icons';
 
 type Freq = RecurringRule['frequency'];
 
@@ -265,7 +266,9 @@ function RuleForm({
           <div>
             <h2>{rule ? 'Edit rule' : 'New recurring rule'}</h2>
           </div>
-          <button onClick={close}>×</button>
+          <button onClick={close} aria-label="Close" title="Close">
+            <IconX size={20} />
+          </button>
         </div>
         {err && <Err msg={err} />}
         <form onSubmit={submit}>

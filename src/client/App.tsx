@@ -37,6 +37,13 @@ const NAV: [Page, ComponentType<{ size?: number }>, string][] = [
   ['manage', IconSliders, 'Manage'],
 ];
 
+const PAGE_TITLE: Record<Page, string> = {
+  dashboard: 'Overview',
+  activity: 'Activity',
+  recurring: 'Recurring',
+  manage: 'Manage',
+};
+
 const THEME_LABEL: Record<ThemePref, string> = {
   auto: 'Theme: match system',
   light: 'Theme: light',
@@ -93,12 +100,14 @@ function Shell() {
     useStore();
   const [themePref, cycleTheme] = useTheme();
   const ThemeIcon = THEME_ICON[themePref];
+  const canAdd = !error && !loading && accounts.length > 0;
 
   if (needsLogin) return <Login />;
 
   return (
     <div className="app">
       <header className="topbar appbar">
+        <h1 className="pagetitle">{PAGE_TITLE[page]}</h1>
         <div className="brand">
           <span className="mark">₹</span>
           <div>
@@ -146,7 +155,7 @@ function Shell() {
         </div>
       )}
 
-      {!error && !loading && accounts.length > 0 && (
+      {canAdd && (
         <button
           className="fab"
           onClick={() => open({ kind: 'tx' })}
@@ -157,7 +166,17 @@ function Shell() {
         </button>
       )}
 
-      <nav className="tabbar">
+      <nav className="tabbar" aria-label="Main">
+        <div className="navbrand">
+          <span className="mark">₹</span>
+          <b>Expenses</b>
+        </div>
+        {canAdd && (
+          <button className="primary navadd" onClick={() => open({ kind: 'tx' })}>
+            <IconPlus size={18} />
+            <span>Add transaction</span>
+          </button>
+        )}
         {NAV.map(([id, Icon, label]) => (
           <button
             key={id}

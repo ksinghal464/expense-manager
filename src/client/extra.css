@@ -1757,3 +1757,167 @@ h2 {
   padding: 8px 20px;
   border-radius: 10px;
 }
+
+/* ============ responsive shell ============
+   < 900px: bottom tab bar + floating add button (phones, small tablets).
+   >= 900px: fixed left sidebar with brand, add button and page links.
+   >= 651px: dialogs are centered cards instead of bottom sheets. */
+:root {
+  --sidebar-w: 232px;
+}
+.pagetitle,
+.tabbar .navbrand,
+.tabbar .navadd {
+  display: none;
+}
+.app {
+  padding-left: max(18px, env(safe-area-inset-left));
+  padding-right: max(18px, env(safe-area-inset-right));
+}
+.modal {
+  padding-bottom: max(16px, env(safe-area-inset-bottom));
+}
+.tabbar button {
+  border-radius: var(--radius-md);
+  transition: color 0.15s ease;
+}
+.fab,
+.primary,
+.outline,
+.tx,
+.balance,
+.manage-tabs button,
+.segmented button {
+  transition:
+    background-color 0.15s ease,
+    border-color 0.15s ease,
+    color 0.15s ease,
+    box-shadow 0.15s ease;
+}
+:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
+}
+
+@media (max-width: 650px) {
+  .app {
+    padding-left: max(10px, env(safe-area-inset-left));
+    padding-right: max(10px, env(safe-area-inset-right));
+  }
+  .toast {
+    bottom: calc(86px + env(safe-area-inset-bottom, 0px));
+  }
+  .fab {
+    bottom: calc(82px + env(safe-area-inset-bottom, 0px));
+  }
+}
+
+@media (min-width: 651px) {
+  .overlay {
+    align-items: center;
+    padding: 24px;
+  }
+  .modal {
+    border-radius: var(--radius-xl);
+    max-height: calc(100vh - 48px);
+    box-shadow: 0 24px 60px var(--shade-3);
+  }
+  .modal.centered {
+    border-radius: var(--radius-xl);
+  }
+}
+
+@media (min-width: 900px) {
+  .app {
+    max-width: calc(var(--sidebar-w) + 1080px);
+    margin: 0;
+    padding: 22px 40px 48px calc(var(--sidebar-w) + 40px);
+  }
+  .appbar .brand {
+    display: none;
+  }
+  .pagetitle {
+    display: block;
+    margin: 0;
+    font-size: var(--text-2xl);
+    letter-spacing: -0.02em;
+  }
+  .fab {
+    display: none;
+  }
+  .toast {
+    bottom: 28px;
+    left: calc(50% + var(--sidebar-w) / 2);
+  }
+
+  nav.tabbar {
+    top: 0;
+    right: auto;
+    width: var(--sidebar-w);
+    height: auto;
+    padding: 20px 14px;
+    flex-direction: column;
+    justify-content: flex-start;
+    gap: 4px;
+    border-top: 0;
+    border-right: 1px solid var(--border);
+    background: var(--surface);
+  }
+  .tabbar .navbrand {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 2px 8px 18px;
+    font-size: var(--text-lg);
+  }
+  .navbrand .mark {
+    width: 34px;
+    height: 34px;
+    flex: none;
+    display: grid;
+    place-items: center;
+    border-radius: 10px;
+    background: var(--accent);
+    color: var(--on-accent);
+    font-weight: 800;
+  }
+  nav.tabbar span {
+    font-size: inherit;
+  }
+  .tabbar .navadd {
+    flex: none;
+    background: var(--accent);
+    color: var(--on-accent);
+    font-weight: 700;
+    border-radius: var(--radius-md);
+    width: 100%;
+    font-size: var(--text-md);
+    display: flex;
+    flex-direction: row;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    margin-bottom: 14px;
+    padding: 11px 14px;
+    box-shadow: 0 6px 16px var(--accent-glow);
+  }
+  .tabbar button:not(.navadd) {
+    flex: none;
+    width: 100%;
+    flex-direction: row;
+    justify-content: flex-start;
+    gap: 12px;
+    padding: 10px 12px;
+    font-size: var(--text-md);
+    font-weight: 600;
+  }
+  .tabbar button:not(.navadd):hover {
+    background: var(--surface-hover);
+    color: var(--text);
+  }
+  .tabbar button.selected,
+  .tabbar button.selected:hover {
+    background: var(--accent-soft);
+    color: var(--accent);
+  }
+}
