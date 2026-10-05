@@ -1162,6 +1162,46 @@ input[type='file'] {
 .bar b.negative {
   color: #c23b47;
 }
+/* --- expandable category groups (dashboard "By category") --- */
+.bar .barlabel {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+}
+.bar .barname {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.bartoggle {
+  flex: none;
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  border: 0;
+  border-radius: 5px;
+  background: none;
+  color: #6b7789;
+  font-size: 11px;
+  line-height: 18px;
+}
+.bartoggle:hover {
+  background: #eef2f6;
+}
+.bartoggle.placeholder {
+  display: inline-block;
+}
+.bar.barchild {
+  font-size: 12px;
+  color: #4a5568;
+}
+.bar.barchild .barlabel {
+  padding-left: 22px;
+}
+.bar.barchild i:not(.neg):after {
+  background: #8fb1d9;
+}
 
 /* ============ compact density pass ============ */
 /* Overall layout: tighter padding, smaller radii, less whitespace. */

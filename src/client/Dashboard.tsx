@@ -2,7 +2,8 @@ import { useEffect, useMemo, useState } from 'react';
 import { useStore } from './store';
 import type { ActivityFilter } from './store';
 import { api } from './api';
-import { money, categoryDisplayName } from './lib';
+import { money, categoryDisplayName, groupCategoryTotals } from './lib';
+import type { CategoryGroup } from './lib';
 import { Empty } from './ui';
 import { TxRow } from './TxRow';
 import { periodStart, PERIOD_PRESETS } from '../shared/period';
@@ -77,6 +78,8 @@ function BreakdownCard({
   fetcher,
   buildFilter,
   onRemove,
+  hideBalance,
+  group,
 }: {
   title: string;
   emptyNoun: string;
@@ -92,14 +95,28 @@ function BreakdownCard({
     item: CategoryTotal,
     from: string,
     to: string | null,
-    type: 'expense' | 'income'
+    type: 'expense' | 'income',
+    opts?: { includeSubcategories?: boolean }
   ) => ActivityFilter;
   onRemove?: () => void;
+  /** Hide the Balance toggle (e.g. categories, where income − expense is meaningless). */
+  hideBalance?: boolean;
+  /** Group flat rows into expandable parent/child rows (category card). */
+  group?: (rows: CategoryTotal[]) => CategoryGroup[];
 }) {
   const { openActivity } = useStore();
   const [key, setKey] = useState<string>('month');
   const [type, setType] = useState<BreakdownType>('expense');
   const [data, setData] = useState<CategoryTotal[]>([]);
+  const [expanded, setExpanded] = useState<Set<string>>(() => new Set());
+  const groups = useMemo(() => (group ? group(data) : null), [group, data]);
+  const toggleExpanded = (k: string) =>
+    setExpanded((cur) => {
+      const next = new Set(cur);
+      if (next.has(k)) next.delete(k);
+      else next.add(k);
+      return next;
+    });
   const [customFrom, setCustomFrom] = useState('');
   const [customTo, setCustomTo] = useState(todayInputValue());
   const [showCustom, setShowCustom] = useState(false);
@@ -128,7 +145,55 @@ function BreakdownCard({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [from, to, type, accountFilter]);
 
-  const max = Math.max(...data.map((d) => Math.abs(d.total)), 1);
+  const max = Math.max(
+    ...(groups
+      ? groups.flatMap((g) => [g, ...g.children]).map((d) => Math.abs(d.total))
+      : data.map((d) => Math.abs(d.total))),
+    1
+  );
+  const drillType: 'expense' | 'income' = type === 'income' ? 'income' : 'expense';
+  const renderBar = (
+    c: CategoryTotal,
+    rowKey: string,
+    opts: { includeSubcategories?: boolean; child?: boolean; toggleKey?: string } = {}
+  ) => (
+    <div
+      className={'bar' + (opts.child ? ' barchild' : '')}
+      key={rowKey}
+      onClick={() =>
+        openActivity(
+          buildFilter(c, from, to, drillType, { includeSubcategories: opts.includeSubcategories })
+        )
+      }
+    >
+      <span className="barlabel">
+        {opts.toggleKey !== undefined ? (
+          <button
+            type="button"
+            className="bartoggle"
+            aria-expanded={expanded.has(opts.toggleKey)}
+            title={expanded.has(opts.toggleKey) ? 'Hide subcategories' : 'Show subcategories'}
+            onClick={(e) => {
+              e.stopPropagation();
+              toggleExpanded(opts.toggleKey!);
+            }}
+          >
+            {expanded.has(opts.toggleKey) ? '▾' : '▸'}
+          </button>
+        ) : groups && !opts.child ? (
+          <span className="bartoggle placeholder" aria-hidden="true" />
+        ) : null}
+        <span className="barname">{c.name}</span>
+      </span>
+      <i
+        className={c.total < 0 ? 'neg' : ''}
+        style={{ width: `${Math.max(7, (Math.abs(c.total) / max) * 100)}%` }}
+      ></i>
+      <b className={type === 'balance' ? (c.total >= 0 ? 'positive' : 'negative') : ''}>
+        {money(c.total)}
+      </b>
+    </div>
+  );
   const label = isCustom
     ? customFrom
       ? `${customFrom} → ${customTo}`
@@ -159,12 +224,14 @@ function BreakdownCard({
             >
               Income
             </button>
-            <button
-              className={type === 'balance' ? 'selected' : ''}
-              onClick={() => setType('balance')}
-            >
-              Balance
-            </button>
+            {!hideBalance && (
+              <button
+                className={type === 'balance' ? 'selected' : ''}
+                onClick={() => setType('balance')}
+              >
+                Balance
+              </button>
+            )}
           </div>
           {onRemove && (
             <button className="framehead-remove" onClick={onRemove} title="Remove widget">
@@ -205,24 +272,24 @@ function BreakdownCard({
       )}
       {data.length ? (
         <div className="bars">
-          {data.map((c) => (
-            <div
-              className="bar"
-              key={c.id ?? 'none'}
-              onClick={() =>
-                openActivity(buildFilter(c, from, to, type === 'income' ? 'income' : 'expense'))
-              }
-            >
-              <span>{c.name}</span>
-              <i
-                className={c.total < 0 ? 'neg' : ''}
-                style={{ width: `${Math.max(7, (Math.abs(c.total) / max) * 100)}%` }}
-              ></i>
-              <b className={type === 'balance' ? (c.total >= 0 ? 'positive' : 'negative') : ''}>
-                {money(c.total)}
-              </b>
-            </div>
-          ))}
+          {groups
+            ? groups.flatMap((g) => {
+                const gKey = g.id ?? 'none';
+                const hasKids = g.children.length > 0;
+                const open = hasKids && expanded.has(gKey);
+                return [
+                  renderBar(g, `g:${gKey}`, {
+                    includeSubcategories: g.includeSubcategories,
+                    toggleKey: hasKids ? gKey : undefined,
+                  }),
+                  ...(open
+                    ? g.children.map((ch) =>
+                        renderBar(ch, `c:${gKey}:${ch.id ?? 'none'}:${ch.name}`, { child: true })
+                      )
+                    : []),
+                ];
+              })
+            : data.map((c) => renderBar(c, c.id ?? 'none'))}
         </div>
       ) : (
         <Empty
@@ -269,6 +336,10 @@ async function mergeBalance(
 export function Dashboard() {
   const { dash, accounts, categories, transactions, go, open, openActivity } = useStore();
   const persisted = useMemo(() => loadPersisted(), []);
+  const groupByCategory = useMemo(
+    () => (rows: CategoryTotal[]) => groupCategoryTotals(rows, categories),
+    [categories]
+  );
 
   // ---- account scope: everything below reacts to this ----
   const [accountFilter, setAccountFilter] = useState(persisted?.accountFilter ?? '');
@@ -489,21 +560,24 @@ export function Dashboard() {
         emptyNoun="category"
         accountFilter={accountFilter}
         accountLabel={accountLabel}
-        fetcher={async (from, to, acct, type) => {
-          const rows = await api.dashboardCategories(from, to, acct, type);
-          // Show subcategories as "Parent › Child" — plain subcategory names
-          // are easy to confuse with an unrelated top-level category (or
-          // another subcategory) of the same/similar name.
-          return rows.map((c) => ({ ...c, name: categoryDisplayName(categories, c.id, c.name) }));
+        fetcher={(from, to, acct, type) => api.dashboardCategories(from, to, acct, type)}
+        hideBalance
+        group={groupByCategory}
+        buildFilter={(c, from, to, type, opts) => {
+          const isSub = !!categories.find((x) => x.id === c.id)?.parent_id;
+          // Subcategory rows show their bare name (they sit indented under
+          // the parent), so give Activity the unambiguous "Parent › Child".
+          const name = isSub ? categoryDisplayName(categories, c.id, c.name) : c.name;
+          return {
+            categoryId: c.id,
+            includeSubcategories: opts?.includeSubcategories || undefined,
+            type,
+            accountId: accountFilter || undefined,
+            from,
+            to,
+            label: `${name} · ${type}`,
+          };
         }}
-        buildFilter={(c, from, to, type) => ({
-          categoryId: c.id,
-          type,
-          accountId: accountFilter || undefined,
-          from,
-          to,
-          label: `${c.name} · ${type}`,
-        })}
       />
 
       {activeBreakdowns.map((dim) => (

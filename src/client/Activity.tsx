@@ -64,6 +64,7 @@ export function Activity() {
   const [type, setType] = useState<'all' | 'expense' | 'income'>('all');
   const [accountId, setAccountId] = useState('');
   const [categoryId, setCategoryId] = useState<string | null | undefined>(undefined);
+  const [includeSubcategories, setIncludeSubcategories] = useState(false);
   const [methodId, setMethodId] = useState('');
   const [payeeId, setPayeeId] = useState('');
   const [status, setStatus] = useState<'' | 'cleared' | 'uncleared'>('');
@@ -86,6 +87,7 @@ export function Activity() {
     setType(f.type || 'all');
     setAccountId(f.accountId || '');
     setCategoryId(f.categoryId);
+    setIncludeSubcategories(!!f.includeSubcategories);
     setMethodId(f.methodId || '');
     setPayeeId(f.payeeId || '');
     setStatus(f.status || '');
@@ -116,6 +118,7 @@ export function Activity() {
     setType('all');
     setAccountId('');
     setCategoryId(undefined);
+    setIncludeSubcategories(false);
     setMethodId('');
     setPayeeId('');
     setStatus('');
@@ -147,7 +150,14 @@ export function Activity() {
     }
     if (accountId) list = list.filter((t) => t.account_id === accountId);
     if (categoryId === TRANSFER_BUCKET_ID) list = list.filter((t) => !!t.transfer_id);
-    else if (categoryId !== undefined)
+    else if (categoryId && includeSubcategories) {
+      // Main category + every subcategory under it (dashboard group drill-through).
+      const ids = new Set([
+        categoryId,
+        ...categories.filter((c) => c.parent_id === categoryId).map((c) => c.id),
+      ]);
+      list = list.filter((t) => !!t.category_id && ids.has(t.category_id));
+    } else if (categoryId !== undefined)
       list = list.filter((t) => (t.category_id || null) === categoryId);
     if (methodId) list = list.filter((t) => t.payment_method_id === methodId);
     if (payeeId === TRANSFER_BUCKET_ID) list = list.filter((t) => !!t.transfer_id);
@@ -175,7 +185,21 @@ export function Activity() {
         .toLowerCase();
       return terms.every((term) => haystack.includes(term));
     });
-  }, [transactions, query, type, accountId, categoryId, methodId, payeeId, status, tag, from, to]);
+  }, [
+    transactions,
+    query,
+    type,
+    accountId,
+    categoryId,
+    includeSubcategories,
+    categories,
+    methodId,
+    payeeId,
+    status,
+    tag,
+    from,
+    to,
+  ]);
 
   // Whether the current selection narrows *within* an account's own
   // history — i.e. excludes some of that account's real transactions from
@@ -451,6 +475,7 @@ export function Activity() {
                 onChange={(e) => {
                   const v = e.target.value;
                   setCategoryId(v === '' ? undefined : v === '__uncat' ? null : v);
+                  setIncludeSubcategories(false);
                 }}
               >
                 <option value="">Any category</option>

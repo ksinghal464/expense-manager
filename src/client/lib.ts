@@ -146,3 +146,105 @@ export function categoryDisplayName(
   const parent = categories.find((x) => x.id === c.parent_id);
   return parent ? `${parent.name} › ${c.name}` : c.name;
 }
+
+/** One expandable row of the dashboard "By category" card. */
+export interface CategoryGroup {
+  /** Main category id (or the bucket's own id for Transfer/Uncategorized/orphans). */
+  id: string | null;
+  name: string;
+  /** Main category + all its subcategories. */
+  total: number;
+  /**
+   * True when `id` is a real main category, so drilling into Activity should
+   * include its subcategories too. False for Transfer, Uncategorized,
+   * deleted categories and subcategories whose main category is gone.
+   */
+  includeSubcategories: boolean;
+  /**
+   * Subcategory rows (exact-category drill-through). Empty when the group
+   * has no subcategory amounts. Amounts booked directly on the main category
+   * appear here as "‹Parent› (no subcategory)" only when subcategory rows
+   * also exist.
+   */
+  children: { id: string | null; name: string; total: number }[];
+}
+
+/**
+ * Groups flat per-category totals (as returned by /api/dashboard/categories)
+ * under their top-level category. `categories` is the active category list
+ * from bootstrap; anything not found there (Transfer bucket, Uncategorized,
+ * deleted categories) and subcategories whose parent is no longer active
+ * stay as standalone top-level rows. Groups and children are sorted by
+ * total, largest first.
+ */
+export function groupCategoryTotals(
+  totals: { id: string | null; name: string; total: number }[],
+  categories: Category[]
+): CategoryGroup[] {
+  const byId = new Map(categories.map((c) => [c.id, c]));
+  const groups = new Map<
+    string,
+    { group: CategoryGroup; direct: number | null; subs: CategoryGroup['children'] }
+  >();
+  const ensure = (key: string, init: () => CategoryGroup) => {
+    let g = groups.get(key);
+    if (!g) {
+      g = { group: init(), direct: null, subs: [] };
+      groups.set(key, g);
+    }
+    return g;
+  };
+
+  for (const row of totals) {
+    const c = row.id ? byId.get(row.id) : undefined;
+    const parent = c?.parent_id ? byId.get(c.parent_id) : undefined;
+    if (c && parent && !parent.parent_id) {
+      // Subcategory under an active main category.
+      const g = ensure(parent.id, () => ({
+        id: parent.id,
+        name: parent.name,
+        total: 0,
+        includeSubcategories: true,
+        children: [],
+      }));
+      g.group.total += row.total;
+      g.subs.push({ id: c.id, name: c.name, total: row.total });
+    } else if (c && !c.parent_id) {
+      // Amount booked directly on a main category.
+      const g = ensure(c.id, () => ({
+        id: c.id,
+        name: c.name,
+        total: 0,
+        includeSubcategories: true,
+        children: [],
+      }));
+      g.group.total += row.total;
+      g.direct = (g.direct ?? 0) + row.total;
+    } else {
+      // Transfer, Uncategorized, deleted category, or orphaned subcategory.
+      const key = `flat:${row.id ?? ''}`;
+      const g = ensure(key, () => ({
+        id: row.id,
+        name: c ? c.name : row.name,
+        total: 0,
+        includeSubcategories: false,
+        children: [],
+      }));
+      g.group.total += row.total;
+    }
+  }
+
+  const byTotalDesc = (a: { total: number }, b: { total: number }) => b.total - a.total;
+  return [...groups.values()]
+    .map(({ group, direct, subs }) => {
+      if (subs.length) {
+        const children = [...subs];
+        if (direct !== null) {
+          children.push({ id: group.id, name: `${group.name} (no subcategory)`, total: direct });
+        }
+        group.children = children.sort(byTotalDesc);
+      }
+      return group;
+    })
+    .sort(byTotalDesc);
+}

@@ -17,6 +17,8 @@ export type ActivityFilter = {
   type?: 'expense' | 'income';
   accountId?: string;
   categoryId?: string | null;
+  /** With categoryId: also match transactions in its subcategories. */
+  includeSubcategories?: boolean;
   methodId?: string;
   payeeId?: string;
   status?: 'cleared' | 'uncleared';
