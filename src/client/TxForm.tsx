@@ -16,6 +16,7 @@ import {
   categoryChildren,
 } from './lib';
 import { Field, SaveButton, Err, CategoryPicker, AttachmentPreview } from './ui';
+import { DateTimeField } from './ClockPicker';
 import type { Category, PaymentMethod, Account, Payee, TxStatus, SplitRow } from '../shared/types';
 
 type SplitDraft = {
@@ -86,7 +87,7 @@ export function TxForm({
   const [staged, setStaged] = useState<StagedFile[]>([]);
   const [attachBusy, setAttachBusy] = useState(false);
   const [previewAttach, setPreviewAttach] = useState<{ url: string; fileName?: string } | null>(
-    null,
+    null
   );
 
   useEffect(() => {
@@ -408,9 +409,7 @@ export function TxForm({
 
       {type === 'transfer' ? (
         <div className="formgrid">
-          <Field label="Date & time">
-            <input type="datetime-local" value={date} onChange={(e) => setDate(e.target.value)} />
-          </Field>
+          <DateTimeField label="Date & time" value={date} onChange={setDate} />
           <Field label="From account *">
             <select
               required
@@ -480,9 +479,7 @@ export function TxForm({
         </div>
       ) : (
         <div className="formgrid">
-          <Field label="Date & time">
-            <input type="datetime-local" value={date} onChange={(e) => setDate(e.target.value)} />
-          </Field>
+          <DateTimeField label="Date & time" value={date} onChange={setDate} />
           <Field label="Account *">
             <select required value={accountId} onChange={(e) => setAccountId(e.target.value)}>
               <option value="" disabled>

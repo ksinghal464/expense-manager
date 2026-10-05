@@ -33,12 +33,16 @@ type PersistedLayout = {
   accountFilter: string;
   activeKeys: string[];
   customWidgets: CustomWidget[];
-  activeBreakdowns: ('method' | 'payee')[];
+  activeBreakdowns: 'method'[];
 };
 function loadPersisted(): PersistedLayout | null {
   try {
     const raw = sessionStorage.getItem(PERSIST_KEY);
-    return raw ? (JSON.parse(raw) as PersistedLayout) : null;
+    if (!raw) return null;
+    const layout = JSON.parse(raw) as PersistedLayout;
+    // Older sessions may still list the removed "By payee" breakdown.
+    layout.activeBreakdowns = (layout.activeBreakdowns ?? []).filter((d) => d === 'method');
+    return layout;
   } catch {
     return null;
   }
@@ -65,7 +69,7 @@ function dateInputToExclusiveEndIso(dateStr: string): string {
 type BreakdownType = 'expense' | 'income' | 'balance';
 
 /**
- * "By category" / "By payment method" / "By payee" card: its own timeframe
+ * "By category" / "By payment method" card: its own timeframe
  * tabs (with a custom date range option) + Expense/Income/Balance toggle,
  * scoped to whatever account is selected above, with each bar clickable
  * through to Activity pre-filtered accordingly.
@@ -357,7 +361,7 @@ export function Dashboard() {
   const [showCustom, setShowCustom] = useState(false);
 
   // ---- on-demand breakdown widgets (category is always shown separately) ----
-  const [activeBreakdowns, setActiveBreakdowns] = useState<('method' | 'payee')[]>(
+  const [activeBreakdowns, setActiveBreakdowns] = useState<'method'[]>(
     persisted?.activeBreakdowns ?? []
   );
 
@@ -427,9 +431,8 @@ export function Dashboard() {
     ? accounts.find((a) => a.id === accountFilter)?.name
     : 'All accounts';
 
-  const BREAKDOWN_DEFS: Record<'method' | 'payee', { title: string; emptyNoun: string }> = {
+  const BREAKDOWN_DEFS: Record<'method', { title: string; emptyNoun: string }> = {
     method: { title: 'By payment method', emptyNoun: 'payment method' },
-    payee: { title: 'By payee', emptyNoun: 'payee' },
   };
 
   return (
@@ -589,9 +592,7 @@ export function Dashboard() {
           accountLabel={accountLabel}
           fetcher={(from, to, acct, type) => api.dashboardBreakdown(dim, from, to, acct, type)}
           buildFilter={(c, from, to, type) => ({
-            ...(dim === 'method'
-              ? { methodId: c.id || undefined }
-              : { payeeId: c.id || undefined }),
+            methodId: c.id || undefined,
             type,
             accountId: accountFilter || undefined,
             from,
@@ -602,10 +603,10 @@ export function Dashboard() {
         />
       ))}
 
-      {(['method', 'payee'] as const).filter((d) => !activeBreakdowns.includes(d)).length > 0 && (
+      {(['method'] as const).filter((d) => !activeBreakdowns.includes(d)).length > 0 && (
         <div className="addwidget">
           <span>Add breakdown:</span>
-          {(['method', 'payee'] as const)
+          {(['method'] as const)
             .filter((d) => !activeBreakdowns.includes(d))
             .map((d) => (
               <button key={d} onClick={() => setActiveBreakdowns((cur) => [...cur, d])}>

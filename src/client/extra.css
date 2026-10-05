@@ -1604,3 +1604,130 @@ h2 {
     padding-bottom: calc(95px + env(safe-area-inset-bottom, 0));
   }
 }
+
+/* --- date + clock-dial time field --- */
+.dtrow {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 8px;
+}
+.timepick {
+  align-items: center;
+  white-space: nowrap;
+}
+.clockoverlay {
+  position: fixed;
+  inset: 0;
+  z-index: 80;
+  background: #101a2952;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+}
+.clocksheet {
+  width: min(360px, 100%);
+  background: #fff;
+  border-radius: 24px 24px 0 0;
+  padding: 18px 20px 20px;
+  box-shadow: 0 -8px 40px #17203330;
+}
+@media (min-width: 651px) {
+  .clockoverlay {
+    align-items: center;
+  }
+  .clocksheet {
+    border-radius: 24px;
+  }
+}
+.clockhead {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  margin-bottom: 14px;
+  font-size: 40px;
+  font-weight: 700;
+  color: #8a97a8;
+}
+.clockhead > button {
+  border: 0;
+  background: #f1f4f8;
+  color: #8a97a8;
+  font-size: 40px;
+  font-weight: 700;
+  line-height: 1;
+  padding: 8px 12px;
+  border-radius: 12px;
+}
+.clockhead > button.active {
+  background: #e3edf9;
+  color: #1f5fa8;
+}
+.clockampm {
+  display: grid;
+  margin-left: 12px;
+  border: 1px solid #d7dfe8;
+  border-radius: 10px;
+  overflow: hidden;
+}
+.clockampm button {
+  border: 0;
+  background: #fff;
+  color: #6b7789;
+  font-size: 13px;
+  font-weight: 700;
+  padding: 6px 10px;
+}
+.clockampm button + button {
+  border-top: 1px solid #d7dfe8;
+}
+.clockampm button.active {
+  background: #e3edf9;
+  color: #1f5fa8;
+}
+.clockdial {
+  display: block;
+  width: min(260px, 78vw);
+  height: auto;
+  margin: 0 auto;
+  touch-action: none;
+  user-select: none;
+  cursor: pointer;
+}
+.clockface {
+  fill: #f1f4f8;
+}
+.clockhand {
+  stroke: #1f5fa8;
+  stroke-width: 2;
+}
+.clockpivot,
+.clockknob {
+  fill: #1f5fa8;
+}
+.clockdot {
+  fill: #fff;
+}
+.clocknum {
+  font-size: 15px;
+  fill: #142033;
+  pointer-events: none;
+}
+.clocknum.selected {
+  fill: #fff;
+  font-weight: 700;
+}
+.clockactions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  margin-top: 16px;
+}
+.clockok {
+  border: 0;
+  background: #17263a;
+  color: #fff;
+  font-weight: 700;
+  padding: 8px 20px;
+  border-radius: 10px;
+}

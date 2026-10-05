@@ -3,6 +3,7 @@ import { api } from './api';
 import { useStore } from './store';
 import { money, fmtDateTime, toInput, dtLocalNow, toIso, avatarLetter } from './lib';
 import { Empty, Err, Field, SaveButton, Segmented, ConfirmDialog, CategoryPicker } from './ui';
+import { DateTimeField } from './ClockPicker';
 import type {
   RecurringRule,
   TxType,
@@ -319,13 +320,7 @@ function RuleForm({
                 onChange={(e) => setNoOfPayments(e.target.value)}
               />
             </Field>
-            <Field label="First due">
-              <input
-                type="datetime-local"
-                value={nextDueAt}
-                onChange={(e) => setNextDueAt(e.target.value)}
-              />
-            </Field>
+            <DateTimeField label="First due" value={nextDueAt} onChange={setNextDueAt} />
             <Field label="Payee / payer">
               <input
                 value={payee}
