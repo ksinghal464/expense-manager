@@ -297,7 +297,18 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
         setNeedsLogin(true);
         setError('');
       } else {
-        setError(e instanceof Error ? e.message : 'Unable to load data');
+        // fetch() network failures: Chrome "Failed to fetch", Safari "Load failed",
+        // Firefox "NetworkError when attempting to fetch resource."
+        const offline =
+          !navigator.onLine ||
+          (e instanceof TypeError && /fetch|network|load failed/i.test(e.message));
+        setError(
+          offline
+            ? "Can't reach the server. Check your connection, then retry."
+            : e instanceof Error
+              ? e.message
+              : 'Unable to load data'
+        );
       }
     } finally {
       setLoading(false);
