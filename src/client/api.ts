@@ -12,6 +12,7 @@ import type {
   AuditEntry,
   Transfer,
 } from '../shared/types';
+import type { TxChanges } from './txMerge';
 
 export type SplitRow = {
   id: string;
@@ -38,6 +39,8 @@ export type TxDetail = TxView & {
   tags: string[];
   refunded_minor: number;
 };
+/** A saved transaction plus the list rows that changed with it. */
+export type TxSaved = TxDetail & TxChanges;
 export type SearchOptions = {
   descriptions: { value: string; count: number }[];
   categories: { id: string; name: string; kind: string; parent_id: string | null }[];
@@ -145,15 +148,17 @@ export const api = {
   transaction: (id: string) => req<TxDetail>(`/api/transactions/${id}`),
   transactionAudit: (id: string) => req<AuditEntry[]>(`/api/transactions/${id}/audit`),
   createTransaction: (body: Record<string, unknown>) =>
-    req<TxDetail>('/api/transactions', { method: 'POST', headers: J, body: JSON.stringify(body) }),
+    req<TxSaved>('/api/transactions', { method: 'POST', headers: J, body: JSON.stringify(body) }),
   updateTransaction: (id: string, body: Record<string, unknown>) =>
-    req<TxDetail>(`/api/transactions/${id}`, {
+    req<TxSaved>(`/api/transactions/${id}`, {
       method: 'PUT',
       headers: J,
       body: JSON.stringify(body),
     }),
   deleteTransaction: (id: string, hard = false) =>
-    req<{ ok: boolean }>(`/api/transactions/${id}${hard ? '?hard=1' : ''}`, { method: 'DELETE' }),
+    req<{ ok: boolean } & TxChanges>(`/api/transactions/${id}${hard ? '?hard=1' : ''}`, {
+      method: 'DELETE',
+    }),
   restoreTransaction: (id: string) => post(`/api/transactions/${id}/restore`, {}),
   purgeTransaction: (id: string) => post(`/api/transactions/${id}/purge`, {}),
   trash: (qs?: Record<string, string>, signal?: AbortSignal) =>
@@ -161,9 +166,13 @@ export const api = {
   purgeTrash: () => post('/api/trash/purge', {}),
 
   createTransfer: (body: Record<string, unknown>) =>
-    req<Transfer>('/api/transfers', { method: 'POST', headers: J, body: JSON.stringify(body) }),
+    req<Transfer & TxChanges>('/api/transfers', {
+      method: 'POST',
+      headers: J,
+      body: JSON.stringify(body),
+    }),
   updateTransfer: (transferId: string, body: Record<string, unknown>) =>
-    req<Transfer>(`/api/transfers/${transferId}`, {
+    req<Transfer & TxChanges>(`/api/transfers/${transferId}`, {
       method: 'PUT',
       headers: J,
       body: JSON.stringify(body),

@@ -23,7 +23,7 @@ export function TxDetail({
   fromTrash?: boolean;
   close: () => void;
 }) {
-  const { refresh, toast, open, accounts, categories, methods, payees } = useStore();
+  const { refresh, applyChanges, toast, open, accounts, categories, methods, payees } = useStore();
   const [tx, setTx] = useState<TxT | null>(null);
   const [audit, setAudit] = useState<AuditEntry[]>([]);
   const [attach, setAttach] = useState<AttachmentRow[]>([]);
@@ -289,9 +289,10 @@ export function TxDetail({
           }
           confirmLabel="Delete"
           onConfirm={async () => {
-            await api.deleteTransaction(id);
-            await after(isTransfer ? 'Transfer moved to trash' : 'Moved to trash');
+            const res = await api.deleteTransaction(id);
+            toast(isTransfer ? 'Transfer moved to trash' : 'Moved to trash');
             close();
+            applyChanges(res);
           }}
           close={() => setConfirm(false)}
         />

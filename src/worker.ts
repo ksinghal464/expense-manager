@@ -12,19 +12,12 @@ export default {
     // Serve the built SPA (and its assets) for anything that is not an API route.
     if (!url.pathname.startsWith('/api/')) return env.ASSETS.fetch(request);
 
-    try {
-      if (request.method === 'POST' && url.pathname === '/api/login')
-        return await handleLogin(request, env);
-      if (request.method === 'POST' && url.pathname === '/api/logout') return handleLogout();
-      await requireAuth(request, url, env);
-      return await route(request, url, env);
-    } catch (e) {
-      if (e instanceof HttpError) return json({ error: e.message }, { status: e.status });
-      // Log the full detail server-side only; never return internal exception
-      // messages (SQL errors, provider responses, etc.) to the client.
-      console.error('Unhandled error handling', request.method, url.pathname, e);
-      return json({ error: 'Internal server error' }, { status: 500 });
-    }
+    const started = Date.now();
+    const res = await handleApi(request, url, env);
+    // Time spent in the Worker (mostly D1 round trips), visible in DevTools > Network > Timing.
+    const timed = new Response(res.body, res);
+    timed.headers.set('Server-Timing', `app;dur=${Date.now() - started}`);
+    return timed;
   },
 
   async scheduled(_event: ScheduledEvent, env: Env): Promise<void> {
@@ -49,3 +42,19 @@ export default {
     }
   },
 };
+
+async function handleApi(request: Request, url: URL, env: Env): Promise<Response> {
+  try {
+    if (request.method === 'POST' && url.pathname === '/api/login')
+      return await handleLogin(request, env);
+    if (request.method === 'POST' && url.pathname === '/api/logout') return handleLogout();
+    await requireAuth(request, url, env);
+    return await route(request, url, env);
+  } catch (e) {
+    if (e instanceof HttpError) return json({ error: e.message }, { status: e.status });
+    // Log the full detail server-side only; never return internal exception
+    // messages (SQL errors, provider responses, etc.) to the client.
+    console.error('Unhandled error handling', request.method, url.pathname, e);
+    return json({ error: 'Internal server error' }, { status: 500 });
+  }
+}

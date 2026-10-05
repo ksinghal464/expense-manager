@@ -58,7 +58,7 @@ export function TxForm({
     tags,
     suggestions,
     open,
-    refresh,
+    applyChanges,
     toast,
     transactions,
   } = useStore();
@@ -250,11 +250,12 @@ export function TxForm({
           note,
           status,
         };
-        if (transferId) await api.updateTransfer(transferId, transferPayload);
-        else await api.createTransfer(transferPayload);
+        const saved = transferId
+          ? await api.updateTransfer(transferId, transferPayload)
+          : await api.createTransfer(transferPayload);
         toast(transferId ? 'Transfer updated' : 'Transfer saved');
         close();
-        refresh();
+        applyChanges(saved);
         return;
       }
 
@@ -299,12 +300,10 @@ export function TxForm({
         payload.splits = [];
       }
 
-      let txId = id;
-      if (id) await api.updateTransaction(id, payload);
-      else {
-        const created = await api.createTransaction(payload);
-        txId = created.id;
-      }
+      const saved = id
+        ? await api.updateTransaction(id, payload)
+        : await api.createTransaction(payload);
+      const txId = saved.id;
 
       if (txId && staged.length) {
         for (const s of staged) {
@@ -321,7 +320,7 @@ export function TxForm({
 
       toast(id ? 'Transaction updated' : 'Transaction saved');
       close();
-      refresh();
+      applyChanges(saved, description);
     } catch (ex) {
       setErr(ex instanceof Error ? ex.message : 'Unable to save');
     } finally {

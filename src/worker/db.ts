@@ -49,6 +49,31 @@ const CHECKABLE = new Set([
 
 type Row = Record<string, any>;
 
+/** Audit-log INSERT as a statement, so write paths can include it in their batch. */
+export function auditStmt(
+  env: Env,
+  entityType: string,
+  entityId: string,
+  action: 'create' | 'update' | 'delete' | 'restore',
+  before: unknown,
+  after: unknown,
+  metadata?: unknown
+): D1PreparedStatement {
+  return env.DB.prepare(
+    `INSERT INTO audit_log (id, occurred_at, entity_type, entity_id, action, before_json, after_json, metadata_json)
+     VALUES (?,?,?,?,?,?,?,?)`
+  ).bind(
+    id(),
+    now(),
+    entityType,
+    entityId,
+    action,
+    before == null ? null : JSON.stringify(before),
+    after == null ? null : JSON.stringify(after),
+    metadata == null ? null : JSON.stringify(metadata)
+  );
+}
+
 export async function audit(
   env: Env,
   entityType: string,
@@ -58,21 +83,7 @@ export async function audit(
   after: unknown,
   metadata?: unknown
 ): Promise<void> {
-  await env.DB.prepare(
-    `INSERT INTO audit_log (id, occurred_at, entity_type, entity_id, action, before_json, after_json, metadata_json)
-     VALUES (?,?,?,?,?,?,?,?)`
-  )
-    .bind(
-      id(),
-      now(),
-      entityType,
-      entityId,
-      action,
-      before == null ? null : JSON.stringify(before),
-      after == null ? null : JSON.stringify(after),
-      metadata == null ? null : JSON.stringify(metadata)
-    )
-    .run();
+  await auditStmt(env, entityType, entityId, action, before, after, metadata).run();
 }
 
 /** Fetch a live (non-deleted) master row. */
@@ -152,7 +163,8 @@ export async function validateTxReferences(
     type: string;
   }
 ): Promise<void> {
-  if (!(await exists(env, 'accounts', refs.accountId))) throw new HttpError(400, 'Account not found');
+  if (!(await exists(env, 'accounts', refs.accountId)))
+    throw new HttpError(400, 'Account not found');
   if (!(await exists(env, 'categories', refs.categoryId)))
     throw new HttpError(400, 'Category not found');
   if (!(await exists(env, 'payment_methods', refs.methodId)))
@@ -195,6 +207,19 @@ export async function runBatches(env: Env, stmts: D1PreparedStatement[]): Promis
 }
 
 /**
+ * Run statements as one D1 batch (one network round trip, one transaction) and
+ * return every statement's result in order. Above 100 statements it falls back
+ * to several batches, which are then no longer atomic as a whole.
+ */
+export async function batchAll(env: Env, stmts: D1PreparedStatement[]): Promise<D1Result<Row>[]> {
+  const out: D1Result<Row>[] = [];
+  for (let i = 0; i < stmts.length; i += 100) {
+    out.push(...(await env.DB.batch<Row>(stmts.slice(i, i + 100))));
+  }
+  return out;
+}
+
+/**
  * Feed the description autocomplete list: bump the usage count of an
  * existing (case-insensitive) match, or insert a new suggestion. Shared by
  * the create/update transaction endpoints (count=1 each) and the CSV
@@ -207,24 +232,33 @@ export async function touchDescriptionSuggestion(
   at: string,
   count = 1
 ): Promise<void> {
-  if (!description) return;
-  const ex = await env.DB.prepare(
-    'SELECT id FROM description_suggestions WHERE lower(description)=lower(?)'
-  )
-    .bind(description)
-    .first<Row>();
-  if (ex)
-    await env.DB.prepare(
-      'UPDATE description_suggestions SET usage_count=usage_count+?, last_used_at=?, updated_at=? WHERE id=?'
-    )
-      .bind(count, at, at, ex.id)
-      .run();
-  else
-    await env.DB.prepare(
-      'INSERT INTO description_suggestions (id,description,usage_count,last_used_at,created_at,updated_at) VALUES (?,?,?,?,?,?)'
-    )
-      .bind(id(), description, count, at, at, at)
-      .run();
+  const stmts = touchSuggestionStmts(env, description, at, count);
+  if (stmts.length) await env.DB.batch(stmts);
+}
+
+// The first suggestion row matching a description case-insensitively.
+const SUGGESTION_MATCH =
+  'id=(SELECT id FROM description_suggestions WHERE lower(description)=lower(?) LIMIT 1)';
+
+/** Statements for touchDescriptionSuggestion, to include in a caller's batch. */
+export function touchSuggestionStmts(
+  env: Env,
+  description: string,
+  at: string,
+  count = 1
+): D1PreparedStatement[] {
+  if (!description) return [];
+  return [
+    env.DB.prepare(
+      `UPDATE description_suggestions SET usage_count=usage_count+?, last_used_at=?, updated_at=?
+       WHERE ${SUGGESTION_MATCH}`
+    ).bind(count, at, at, description),
+    env.DB.prepare(
+      `INSERT INTO description_suggestions (id,description,usage_count,last_used_at,created_at,updated_at)
+       SELECT ?,?,?,?,?,? WHERE NOT EXISTS
+         (SELECT 1 FROM description_suggestions WHERE lower(description)=lower(?))`
+    ).bind(id(), description, count, at, at, at, description),
+  ];
 }
 
 /**
@@ -243,21 +277,24 @@ export async function untouchDescriptionSuggestion(
   at: string,
   count = 1
 ): Promise<void> {
-  if (!description) return;
-  const ex = await env.DB.prepare(
-    'SELECT id, usage_count FROM description_suggestions WHERE lower(description)=lower(?)'
-  )
-    .bind(description)
-    .first<Row>();
-  if (!ex) return;
-  const remaining = ex.usage_count - count;
-  if (remaining <= 0) {
-    await env.DB.prepare('DELETE FROM description_suggestions WHERE id=?').bind(ex.id).run();
-  } else {
-    await env.DB.prepare(
-      'UPDATE description_suggestions SET usage_count=?, updated_at=? WHERE id=?'
-    )
-      .bind(remaining, at, ex.id)
-      .run();
-  }
+  const stmts = untouchSuggestionStmts(env, description, at, count);
+  if (stmts.length) await env.DB.batch(stmts);
+}
+
+/** Statements for untouchDescriptionSuggestion, to include in a caller's batch. */
+export function untouchSuggestionStmts(
+  env: Env,
+  description: string,
+  at: string,
+  count = 1
+): D1PreparedStatement[] {
+  if (!description) return [];
+  return [
+    env.DB.prepare(
+      `UPDATE description_suggestions SET usage_count=usage_count-?, updated_at=? WHERE ${SUGGESTION_MATCH}`
+    ).bind(count, at, description),
+    env.DB.prepare(
+      `DELETE FROM description_suggestions WHERE ${SUGGESTION_MATCH} AND usage_count<=0`
+    ).bind(description),
+  ];
 }

@@ -3,6 +3,10 @@ import {
   now,
   id,
   audit,
+  auditStmt,
+  batchAll,
+  touchSuggestionStmts,
+  untouchSuggestionStmts,
   exists,
   getEntity,
   toIso,
@@ -14,7 +18,6 @@ import {
   checkTxReferences,
   touchDescriptionSuggestion,
   untouchDescriptionSuggestion,
-  validateTxReferences,
 } from './db';
 import { buildDashboard, rangeStats, categoryBreakdown, entityBreakdown } from './aggregate';
 import { runRecurring, advanceDue } from './recurring';
@@ -83,22 +86,6 @@ async function upsertPayee(env: Env, name: string, at: string): Promise<string |
     'INSERT INTO payees (id,name,address,is_active,created_at,updated_at) VALUES (?,?,?,1,?,?)'
   )
     .bind(newId, n, '', at, at)
-    .run();
-  return newId;
-}
-
-async function upsertTag(env: Env, name: string, at: string): Promise<string | null> {
-  const n = name.trim();
-  if (!n) return null;
-  const r = await env.DB.prepare(
-    'SELECT id FROM tags WHERE lower(name)=? AND deleted_at IS NULL LIMIT 1'
-  )
-    .bind(n.toLowerCase())
-    .first<Row>();
-  if (r) return r.id;
-  const newId = id();
-  await env.DB.prepare('INSERT INTO tags (id,name,created_at,updated_at) VALUES (?,?,?,?)')
-    .bind(newId, n, at, at)
     .run();
   return newId;
 }
@@ -239,6 +226,256 @@ async function listTransactions(env: Env, url: URL, trashOnly = false): Promise<
   return json(r.results.map((t) => ({ ...t, tags: tags[t.id] || [] })));
 }
 
+// ---------------- transaction writes ----------------
+// Each save is two D1 round trips: one batch of reads (everything needed to
+// validate), then one batch that does every write, the audit entry and reads
+// back the changed rows. A batch runs as a single transaction, so a failed save
+// leaves nothing half-written.
+
+const SPLIT_INSERT =
+  'INSERT INTO transaction_splits (id,transaction_id,category_id,amount_minor,description,note,occurred_at,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?)';
+const SPLITS_OF = `SELECT s.*, c.name AS category_name FROM transaction_splits s LEFT JOIN categories c ON c.id=s.category_id
+  WHERE s.transaction_id=? AND s.deleted_at IS NULL ORDER BY s.created_at`;
+const REFUNDS_OF = `SELECT r.id, r.occurred_at, r.amount_minor, r.description, r.account_id, a.name AS account_name
+  FROM transactions r JOIN accounts a ON a.id=r.account_id
+  WHERE r.refunds_transaction_id=? AND r.deleted_at IS NULL ORDER BY r.occurred_at`;
+
+/**
+ * Two statements that read back, in list (TxView) shape with tags, every live
+ * transaction the client must replace after a write touching `ids`: the rows
+ * themselves, their refunds, refunds sharing them as parent (whose "refunded so
+ * far" totals change), and the other leg of any transfer.
+ */
+function changedRowsStmts(env: Env, ids: (string | null | undefined)[]): D1PreparedStatement[] {
+  const list = JSON.stringify([...new Set(ids.filter(Boolean))]);
+  const where = `t.deleted_at IS NULL AND (t.id IN (SELECT value FROM json_each(?))
+    OR t.refunds_transaction_id IN (SELECT value FROM json_each(?))
+    OR t.transfer_id IN (SELECT transfer_id FROM transactions
+      WHERE id IN (SELECT value FROM json_each(?)) AND transfer_id IS NOT NULL))`;
+  return [
+    env.DB.prepare(
+      `${TX_SELECT} WHERE ${where} ORDER BY t.occurred_at DESC, t.created_at DESC, t.id DESC`
+    ).bind(list, list, list),
+    env.DB.prepare(
+      `SELECT tt.transaction_id AS tid, tg.name FROM transaction_tags tt JOIN tags tg ON tg.id=tt.tag_id
+       WHERE tt.transaction_id IN (SELECT t.id FROM transactions t WHERE ${where})`
+    ).bind(list, list, list),
+  ];
+}
+
+function changedRows(rows: D1Result<Row>, tags: D1Result<Row>): Row[] {
+  const map: Record<string, string[]> = {};
+  for (const x of tags.results) (map[x.tid] ||= []).push(x.name);
+  return rows.results.map((t) => ({ ...t, tags: map[t.id] || [] }));
+}
+
+type TxLookup = {
+  before: Row | null;
+  refs: Row;
+  refundTarget: Row | null;
+  payeeId: string | null;
+  tagIds: Map<string, string>;
+  splitCategories: Map<string, string>;
+  oldSplits: Row[];
+};
+
+/**
+ * One read batch for a transaction save. For an edit (`txId` set), any ref
+ * left `undefined` falls back to the stored row's value inside the SQL, so the
+ * stored row doesn't have to be fetched first.
+ */
+async function lookupTx(
+  env: Env,
+  q: {
+    txId: string | null;
+    accountId?: string;
+    methodId?: string;
+    categoryId?: string;
+    refundsTransactionId?: string | null;
+    payeeName?: string | null;
+    tagNames: string[];
+    splitCategoryIds: string[];
+    withOldSplits: boolean;
+  }
+): Promise<TxLookup> {
+  const stmts: D1PreparedStatement[] = [
+    env.DB.prepare('SELECT * FROM transactions WHERE id=? AND deleted_at IS NULL').bind(q.txId),
+    env.DB.prepare(
+      `SELECT
+         EXISTS(SELECT 1 FROM accounts WHERE id=r.acc AND deleted_at IS NULL) AS account_ok,
+         EXISTS(SELECT 1 FROM categories WHERE id=r.cat AND deleted_at IS NULL) AS category_ok,
+         (SELECT kind FROM categories WHERE id=r.cat AND deleted_at IS NULL) AS category_kind,
+         EXISTS(SELECT 1 FROM payment_methods WHERE id=r.pm AND deleted_at IS NULL) AS method_ok,
+         (SELECT account_id FROM payment_methods WHERE id=r.pm AND deleted_at IS NULL) AS method_account
+       FROM (SELECT COALESCE(?, b.account_id) AS acc, COALESCE(?, b.payment_method_id) AS pm,
+                    COALESCE(?, b.category_id) AS cat
+             FROM (SELECT 1) one LEFT JOIN transactions b ON b.id=? AND b.deleted_at IS NULL) r`
+    ).bind(q.accountId ?? null, q.methodId ?? null, q.categoryId ?? null, q.txId),
+    // Refund target: the given id, or (when not given) the stored row's link.
+    env.DB.prepare(
+      `SELECT transaction_type, transfer_id FROM transactions WHERE deleted_at IS NULL
+       AND id=COALESCE(?, (SELECT refunds_transaction_id FROM transactions WHERE id=?))`
+    ).bind(q.refundsTransactionId ?? null, q.txId),
+    env.DB.prepare('SELECT id FROM payees WHERE lower(name)=? AND deleted_at IS NULL LIMIT 1').bind(
+      (q.payeeName || '').toLowerCase()
+    ),
+    env.DB.prepare(
+      `SELECT id, lower(name) AS k FROM tags WHERE deleted_at IS NULL
+       AND lower(name) IN (SELECT value FROM json_each(?))`
+    ).bind(JSON.stringify(q.tagNames.map((n) => n.toLowerCase()))),
+    env.DB.prepare(
+      `SELECT id, name FROM categories WHERE deleted_at IS NULL
+       AND id IN (SELECT value FROM json_each(?))`
+    ).bind(JSON.stringify(q.splitCategoryIds)),
+  ];
+  if (q.withOldSplits) stmts.push(env.DB.prepare(SPLITS_OF).bind(q.txId));
+  const [before, refs, refund, payee, tags, cats, oldSplits] = await batchAll(env, stmts);
+  const tagIds = new Map<string, string>();
+  for (const t of tags.results) if (!tagIds.has(t.k)) tagIds.set(t.k, t.id);
+  return {
+    before: before.results[0] ?? null,
+    refs: refs.results[0],
+    refundTarget: refund.results[0] ?? null,
+    payeeId: q.payeeName ? (payee.results[0]?.id ?? null) : null,
+    tagIds,
+    splitCategories: new Map(cats.results.map((c) => [c.id, c.name])),
+    oldSplits: oldSplits?.results ?? [],
+  };
+}
+
+/** Same checks and messages as validateTxReferences, from a lookupTx result. */
+function checkRefs(refs: Row, accountId: string, type: string): void {
+  if (!refs.account_ok) throw new HttpError(400, 'Account not found');
+  if (!refs.category_ok) throw new HttpError(400, 'Category not found');
+  if (!refs.method_ok) throw new HttpError(400, 'Payment method not found');
+  if (refs.method_account !== accountId)
+    throw new HttpError(400, 'Payment method does not belong to the selected account');
+  if (refs.category_kind !== 'both' && refs.category_kind !== type)
+    throw new HttpError(400, `Category is not valid for ${type} transactions`);
+}
+
+function checkRefundTarget(target: Row | null, type: string): void {
+  if (!target) throw new HttpError(400, 'Refund target transaction not found');
+  if (target.transaction_type !== 'expense')
+    throw new HttpError(400, 'Refund target must be an expense');
+  if (target.transfer_id) throw new HttpError(400, 'A transfer cannot be refunded');
+  if (type !== 'income') throw new HttpError(400, 'A refund must be recorded as income');
+}
+
+type PreparedSplit = {
+  id: string;
+  categoryId: string | null;
+  amount: number;
+  description: string;
+  note: string;
+  occurredAt: string | null;
+};
+
+/** Parse split parts (amounts only); category existence is checked after the lookup. */
+function parseSplits(raw: any[]): PreparedSplit[] {
+  return raw.map((s) => {
+    const amt = toMinorStrict(s.amount);
+    if (!(amt > 0)) throw new HttpError(400, 'Each split amount must be greater than zero');
+    return {
+      id: id(),
+      categoryId: optStr(s, 'categoryId'),
+      amount: amt,
+      description: str(s, 'description'),
+      note: str(s, 'note'),
+      occurredAt: optStr(s, 'occurredAt') ? toIso(s.occurredAt) : null,
+    };
+  });
+}
+
+function checkSplits(splits: PreparedSplit[], cats: Map<string, string>, total: number): void {
+  for (const s of splits)
+    if (s.categoryId && !cats.has(s.categoryId))
+      throw new HttpError(400, 'Split category not found');
+  const sum = splits.reduce((n, s) => n + s.amount, 0);
+  if (Math.abs(sum - total) > 1) throw new HttpError(400, 'Split amounts must sum to the total');
+}
+
+function tagNamesOf(b: Record<string, unknown>): string[] {
+  return [...new Set((b['tags'] as unknown[]).map((t) => String(t).trim()).filter(Boolean))];
+}
+
+/**
+ * Statements linking `txId` to the named tags, creating missing tags first
+ * (one per case-insensitive name, keeping the first spelling given).
+ */
+function tagLinkStmts(
+  env: Env,
+  txId: string,
+  names: string[],
+  existing: Map<string, string>,
+  at: string
+): { stmts: D1PreparedStatement[]; created: boolean } {
+  const stmts: D1PreparedStatement[] = [];
+  const ids = new Set<string>();
+  let created = false;
+  for (const n of names) {
+    const k = n.toLowerCase();
+    let tid = existing.get(k);
+    if (!tid) {
+      tid = id();
+      existing.set(k, tid);
+      created = true;
+      stmts.push(
+        env.DB.prepare('INSERT INTO tags (id,name,created_at,updated_at) VALUES (?,?,?,?)').bind(
+          tid,
+          n,
+          at,
+          at
+        )
+      );
+    }
+    ids.add(tid);
+  }
+  for (const tid of ids)
+    stmts.push(
+      env.DB.prepare(
+        'INSERT OR IGNORE INTO transaction_tags (transaction_id,tag_id) VALUES (?,?)'
+      ).bind(txId, tid)
+    );
+  return { stmts, created };
+}
+
+function payeeInsert(env: Env, payeeId: string, name: string, at: string): D1PreparedStatement {
+  return env.DB.prepare(
+    'INSERT INTO payees (id,name,address,is_active,created_at,updated_at) VALUES (?,?,?,1,?,?)'
+  ).bind(payeeId, name, '', at, at);
+}
+
+/**
+ * Run a save's writes plus the read-back of the saved transaction (detail
+ * shape) and every row the client must refresh. Returns the response body.
+ */
+async function writeAndReadBack(
+  env: Env,
+  writes: D1PreparedStatement[],
+  txId: string,
+  changedIds: (string | null | undefined)[],
+  masterChanged: boolean
+): Promise<Row> {
+  const res = await batchAll(env, [
+    ...writes,
+    ...changedRowsStmts(env, changedIds),
+    env.DB.prepare(SPLITS_OF).bind(txId),
+    env.DB.prepare(REFUNDS_OF).bind(txId),
+  ]);
+  const [rows, tags, splits, refunds] = res.slice(-4);
+  const affected = changedRows(rows, tags);
+  const self = affected.find((t) => t.id === txId);
+  if (!self) throw new HttpError(500, 'Saved transaction could not be read back');
+  return {
+    ...self,
+    splits: splits.results,
+    refunds: refunds.results,
+    affected,
+    masterChanged,
+  };
+}
+
 async function createTransaction(env: Env, request: Request): Promise<Response> {
   const b = await readJson(request);
   const at = now();
@@ -248,170 +485,163 @@ async function createTransaction(env: Env, request: Request): Promise<Response> 
   if (!accountId) throw new HttpError(400, 'accountId is required');
   if (!TYPE_RE.test(type)) throw new HttpError(400, 'type must be expense or income');
   if (!(amountMinor > 0)) throw new HttpError(400, 'amount must be greater than zero');
-  const acc = await env.DB.prepare('SELECT 1 AS ok FROM accounts WHERE id=? AND deleted_at IS NULL')
-    .bind(accountId)
-    .first<Row>();
-  if (!acc) throw new HttpError(400, 'Account not found');
-
   const categoryId = optStr(b, 'categoryId');
   const methodId = optStr(b, 'methodId');
   if (!categoryId) throw new HttpError(400, 'categoryId is required');
   if (!methodId) throw new HttpError(400, 'methodId is required');
-  await validateTxReferences(env, { accountId, methodId, categoryId, type });
 
   const refundsTransactionId = optStr(b, 'refundsTransactionId');
-  if (refundsTransactionId) {
-    const ref = await env.DB.prepare(
-      'SELECT transaction_type, transfer_id FROM transactions WHERE id=? AND deleted_at IS NULL'
-    )
-      .bind(refundsTransactionId)
-      .first<Row>();
-    if (!ref) throw new HttpError(400, 'Refund target transaction not found');
-    if (ref.transaction_type !== 'expense')
-      throw new HttpError(400, 'Refund target must be an expense');
-    if (ref.transfer_id) throw new HttpError(400, 'A transfer cannot be refunded');
-    if (type !== 'income') throw new HttpError(400, 'A refund must be recorded as income');
-  }
-
-  let payeeId = optStr(b, 'payeeId');
-  const payeeName = str(b, 'payee');
-  if (!payeeId && payeeName) payeeId = await upsertPayee(env, payeeName, at);
-
+  const explicitPayeeId = optStr(b, 'payeeId');
+  const payeeName = explicitPayeeId ? '' : str(b, 'payee');
   const status = STATUS_RE.test(str(b, 'status')) ? str(b, 'status') : 'cleared';
   const description = str(b, 'description');
   const note = str(b, 'note');
   const occurredAt = toIso(b['occurredAt']);
-
-  const txId = id();
   const isSplitParent = b['isSplitParent'] === true;
   const splitsRaw = Array.isArray(b['splits']) ? (b['splits'] as any[]) : [];
+  if (isSplitParent && splitsRaw.length < 2)
+    throw new HttpError(400, 'A split needs at least two items');
+  const splits = isSplitParent ? parseSplits(splitsRaw) : [];
+  const tagNames = Array.isArray(b['tags']) ? tagNamesOf(b) : [];
 
-  if (isSplitParent) {
-    if (splitsRaw.length < 2) throw new HttpError(400, 'A split needs at least two items');
-    let sum = 0;
-    const prepared = splitsRaw.map((s) => {
-      const amt = toMinorStrict(s.amount);
-      if (!(amt > 0)) throw new HttpError(400, 'Each split amount must be greater than zero');
-      sum += amt;
-      const catId = optStr(s, 'categoryId');
-      return {
-        id: id(),
-        categoryId: catId,
-        amount: amt,
-        description: str(s, 'description'),
-        note: str(s, 'note'),
-        occurredAt: optStr(s, 'occurredAt') ? toIso(s.occurredAt) : occurredAt,
-      };
-    });
-    for (const s of prepared)
-      if (s.categoryId && !(await exists(env, 'categories', s.categoryId)))
-        throw new HttpError(400, 'Split category not found');
-    if (Math.abs(sum - amountMinor) > 1)
-      throw new HttpError(400, 'Split amounts must sum to the total');
-    await env.DB.prepare(INSERT_TX)
-      .bind(
+  const lk = await lookupTx(env, {
+    txId: null,
+    accountId,
+    methodId,
+    categoryId,
+    refundsTransactionId,
+    payeeName,
+    tagNames,
+    splitCategoryIds: splits.map((s) => s.categoryId).filter((x): x is string => !!x),
+    withOldSplits: false,
+  });
+  checkRefs(lk.refs, accountId, type);
+  if (refundsTransactionId) checkRefundTarget(lk.refundTarget, type);
+  if (isSplitParent) checkSplits(splits, lk.splitCategories, amountMinor);
+
+  const txId = id();
+  const writes: D1PreparedStatement[] = [];
+  let masterChanged = false;
+  let payeeId = explicitPayeeId;
+  if (!payeeId && payeeName) {
+    payeeId = lk.payeeId;
+    if (!payeeId) {
+      payeeId = id();
+      writes.push(payeeInsert(env, payeeId, payeeName, at));
+      masterChanged = true;
+    }
+  }
+  const created: Row = {
+    id: txId,
+    account_id: accountId,
+    payment_method_id: methodId,
+    category_id: categoryId,
+    payee_id: payeeId,
+    transaction_type: type,
+    amount_minor: amountMinor,
+    occurred_at: occurredAt,
+    description,
+    note,
+    status,
+    parent_transaction_id: null,
+    recurring_rule_id: null,
+    transfer_id: null,
+    is_split_parent: isSplitParent ? 1 : 0,
+    created_at: at,
+    updated_at: at,
+    deleted_at: null,
+    refunds_transaction_id: refundsTransactionId,
+  };
+  writes.push(
+    env.DB.prepare(INSERT_TX).bind(
+      txId,
+      accountId,
+      methodId,
+      categoryId,
+      payeeId,
+      type,
+      amountMinor,
+      occurredAt,
+      description,
+      note,
+      status,
+      refundsTransactionId,
+      null,
+      null,
+      created.is_split_parent,
+      at,
+      at
+    )
+  );
+  for (const s of splits)
+    writes.push(
+      env.DB.prepare(SPLIT_INSERT).bind(
+        s.id,
         txId,
-        accountId,
-        methodId,
-        categoryId,
-        payeeId,
-        type,
-        amountMinor,
-        occurredAt,
-        description,
-        note,
-        status,
-        refundsTransactionId,
-        null,
-        null,
-        1,
+        s.categoryId,
+        s.amount,
+        s.description,
+        s.note,
+        s.occurredAt ?? occurredAt,
         at,
         at
       )
-      .run();
-    await env.DB.batch(
-      prepared.map((s) =>
-        env.DB.prepare(
-          'INSERT INTO transaction_splits (id,transaction_id,category_id,amount_minor,description,note,occurred_at,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?)'
-        ).bind(s.id, txId, s.categoryId, s.amount, s.description, s.note, s.occurredAt, at, at)
-      )
     );
-  } else {
-    await env.DB.prepare(INSERT_TX)
-      .bind(
-        txId,
-        accountId,
-        methodId,
-        categoryId,
-        payeeId,
-        type,
-        amountMinor,
-        occurredAt,
-        description,
-        note,
-        status,
-        refundsTransactionId,
-        null,
-        null,
-        0,
-        at,
-        at
-      )
-      .run();
-  }
+  const tagWrites = tagLinkStmts(env, txId, tagNames, lk.tagIds, at);
+  writes.push(...tagWrites.stmts);
+  masterChanged ||= tagWrites.created;
+  writes.push(...touchSuggestionStmts(env, description, at));
+  writes.push(auditStmt(env, 'transaction', txId, 'create', null, created));
 
-  const tagNames = Array.isArray(b['tags'])
-    ? (b['tags'] as any[]).map((t) => String(t).trim()).filter(Boolean)
-    : [];
-  const tagIds: string[] = [];
-  for (const t of new Set(tagNames)) {
-    const tid = await upsertTag(env, t, at);
-    if (tid) tagIds.push(tid);
-  }
-  if (tagIds.length) {
-    await env.DB.batch(
-      tagIds.map((tid) =>
-        env.DB.prepare(
-          'INSERT OR IGNORE INTO transaction_tags (transaction_id,tag_id) VALUES (?,?)'
-        ).bind(txId, tid)
-      )
-    );
-  }
-
-  await touchDescriptionSuggestion(env, description, at);
-
-  const created = await env.DB.prepare('SELECT * FROM transactions WHERE id=?')
-    .bind(txId)
-    .first<Row>();
-  await audit(env, 'transaction', txId, 'create', null, created);
-  const detail = await txDetail(env, txId);
-  return json(detail, { status: 201 });
+  const body = await writeAndReadBack(
+    env,
+    writes,
+    txId,
+    [txId, refundsTransactionId],
+    masterChanged
+  );
+  return json(body, { status: 201 });
 }
 
 async function updateTransaction(env: Env, request: Request, txId: string): Promise<Response> {
-  const before = await env.DB.prepare(
-    'SELECT * FROM transactions WHERE id=? AND deleted_at IS NULL'
-  )
-    .bind(txId)
-    .first<Row>();
+  const b = await readJson(request);
+  const at = now();
+  const given = (k: string) => (b[k] !== undefined ? String(b[k] || '') : undefined);
+  const splitsRaw = Array.isArray(b['splits']) ? (b['splits'] as any[]) : null;
+  const tagNames = Array.isArray(b['tags']) ? tagNamesOf(b) : null;
+  // Parse split amounts up front only to collect their categories for the lookup.
+  const splitCategoryIds =
+    splitsRaw && splitsRaw.length >= 2
+      ? splitsRaw.map((s) => optStr(s, 'categoryId')).filter((x): x is string => !!x)
+      : [];
+
+  const lk = await lookupTx(env, {
+    txId,
+    accountId: b['accountId'] !== undefined ? String(b['accountId']) : undefined,
+    methodId: given('methodId'),
+    categoryId: given('categoryId'),
+    refundsTransactionId:
+      b['refundsTransactionId'] === null ? null : given('refundsTransactionId') || undefined,
+    payeeName: b['payee'] !== undefined ? str(b, 'payee') : null,
+    tagNames: tagNames || [],
+    splitCategoryIds,
+    withOldSplits: splitsRaw !== null,
+  });
+  const before = lk.before;
   if (!before) throw new HttpError(404, 'Transaction not found');
   if (before.transfer_id)
     throw new HttpError(400, 'Edit this transfer via PUT /api/transfers/:id instead');
-  const b = await readJson(request);
-  const at = now();
 
   const amountMinor = b['amount'] !== undefined ? toMinorStrict(b['amount']) : before.amount_minor;
   const type = b['type'] !== undefined ? String(b['type']) : before.transaction_type;
   if (!TYPE_RE.test(type)) throw new HttpError(400, 'type must be expense or income');
   if (!(amountMinor > 0)) throw new HttpError(400, 'amount must be greater than zero');
   const accountId = b['accountId'] !== undefined ? String(b['accountId']) : before.account_id;
-  const methodId =
-    b['methodId'] !== undefined ? String(b['methodId'] || '') : before.payment_method_id;
-  const categoryId =
-    b['categoryId'] !== undefined ? String(b['categoryId'] || '') : before.category_id;
+  const methodId = given('methodId') ?? before.payment_method_id;
+  const categoryId = given('categoryId') ?? before.category_id;
   if (!methodId) throw new HttpError(400, 'methodId is required');
   if (!categoryId) throw new HttpError(400, 'categoryId is required');
-  await validateTxReferences(env, { accountId, methodId, categoryId, type });
+  checkRefs(lk.refs, accountId, type);
 
   let payeeId =
     b['payeeId'] === null
@@ -419,7 +649,17 @@ async function updateTransaction(env: Env, request: Request, txId: string): Prom
       : b['payeeId'] !== undefined
         ? String(b['payeeId'])
         : before.payee_id;
-  if (b['payee'] !== undefined) payeeId = await upsertPayee(env, str(b, 'payee'), at);
+  const writes: D1PreparedStatement[] = [];
+  let masterChanged = false;
+  if (b['payee'] !== undefined) {
+    const name = str(b, 'payee');
+    payeeId = name ? lk.payeeId : null;
+    if (name && !payeeId) {
+      payeeId = id();
+      writes.push(payeeInsert(env, payeeId, name, at));
+      masterChanged = true;
+    }
+  }
 
   const status =
     b['status'] !== undefined
@@ -441,56 +681,16 @@ async function updateTransaction(env: Env, request: Request, txId: string): Prom
   if (refundsTransactionId) {
     if (refundsTransactionId === txId)
       throw new HttpError(400, 'A transaction cannot refund itself');
-    const ref = await env.DB.prepare(
-      'SELECT transaction_type, transfer_id FROM transactions WHERE id=? AND deleted_at IS NULL'
-    )
-      .bind(refundsTransactionId)
-      .first<Row>();
-    if (!ref) throw new HttpError(400, 'Refund target transaction not found');
-    if (ref.transaction_type !== 'expense')
-      throw new HttpError(400, 'Refund target must be an expense');
-    if (ref.transfer_id) throw new HttpError(400, 'A transfer cannot be refunded');
-    if (type !== 'income') throw new HttpError(400, 'A refund must be recorded as income');
+    checkRefundTarget(lk.refundTarget, type);
   }
 
-  // Validate replacement splits (if provided) fully before writing anything
-  // — this guarantees a bad split (invalid amount, sum mismatch, dead
-  // category) leaves both the parent transaction and its existing splits
-  // completely untouched.
-  type PreparedSplit = {
-    id: string;
-    categoryId: string | null;
-    amount: number;
-    description: string;
-    note: string;
-    occurredAt: string;
-  };
+  // Validate replacement splits fully before writing anything.
   let newSplits: PreparedSplit[] | null = null;
   let isSplitParent = before.is_split_parent;
-  if (Array.isArray(b['splits'])) {
-    const splitsRaw = b['splits'] as any[];
+  if (splitsRaw) {
     if (splitsRaw.length >= 2) {
-      let sum = 0;
-      const prepared: PreparedSplit[] = [];
-      for (const s of splitsRaw) {
-        const amt = toMinorStrict(s.amount);
-        if (!(amt > 0)) throw new HttpError(400, 'Each split amount must be greater than zero');
-        sum += amt;
-        const categoryId = optStr(s, 'categoryId');
-        if (categoryId && !(await exists(env, 'categories', categoryId)))
-          throw new HttpError(400, 'Split category not found');
-        prepared.push({
-          id: id(),
-          categoryId,
-          amount: amt,
-          description: str(s, 'description'),
-          note: str(s, 'note'),
-          occurredAt: optStr(s, 'occurredAt') ? toIso(s.occurredAt) : occurredAt,
-        });
-      }
-      if (Math.abs(sum - amountMinor) > 1)
-        throw new HttpError(400, 'Split amounts must sum to the total');
-      newSplits = prepared;
+      newSplits = parseSplits(splitsRaw);
+      checkSplits(newSplits, lk.splitCategories, amountMinor);
       isSplitParent = 1;
     } else {
       newSplits = [];
@@ -498,12 +698,12 @@ async function updateTransaction(env: Env, request: Request, txId: string): Prom
     }
   }
 
-  await env.DB.prepare(
-    `UPDATE transactions SET account_id=?,payment_method_id=?,category_id=?,payee_id=?,transaction_type=?,amount_minor=?,
-     occurred_at=?,description=?,note=?,status=?,refunds_transaction_id=?,is_split_parent=?,updated_at=?
-     WHERE id=?`
-  )
-    .bind(
+  writes.push(
+    env.DB.prepare(
+      `UPDATE transactions SET account_id=?,payment_method_id=?,category_id=?,payee_id=?,transaction_type=?,amount_minor=?,
+       occurred_at=?,description=?,note=?,status=?,refunds_transaction_id=?,is_split_parent=?,updated_at=?
+       WHERE id=?`
+    ).bind(
       accountId,
       methodId,
       categoryId,
@@ -519,77 +719,122 @@ async function updateTransaction(env: Env, request: Request, txId: string): Prom
       at,
       txId
     )
-    .run();
+  );
 
-  // replace splits if provided (already fully validated above)
-  let splitsBefore: Row[] | null = null;
   let splitsAfter: Row[] | null = null;
   if (newSplits !== null) {
-    const oldSplits = await env.DB.prepare(
-      `SELECT s.*, c.name AS category_name FROM transaction_splits s LEFT JOIN categories c ON c.id=s.category_id
-       WHERE s.transaction_id=? AND s.deleted_at IS NULL ORDER BY s.created_at`
-    )
-      .bind(txId)
-      .all<Row>();
-    splitsBefore = oldSplits.results;
-
-    await env.DB.prepare('DELETE FROM transaction_splits WHERE transaction_id=?').bind(txId).run();
-    if (newSplits.length) {
-      await env.DB.batch(
-        newSplits.map((s) =>
-          env.DB.prepare(
-            'INSERT INTO transaction_splits (id,transaction_id,category_id,amount_minor,description,note,occurred_at,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?)'
-          ).bind(s.id, txId, s.categoryId, s.amount, s.description, s.note, s.occurredAt, at, at)
+    writes.push(env.DB.prepare('DELETE FROM transaction_splits WHERE transaction_id=?').bind(txId));
+    for (const s of newSplits)
+      writes.push(
+        env.DB.prepare(SPLIT_INSERT).bind(
+          s.id,
+          txId,
+          s.categoryId,
+          s.amount,
+          s.description,
+          s.note,
+          s.occurredAt ?? occurredAt,
+          at,
+          at
         )
       );
-      const catNames = new Map(
-        (await env.DB.prepare('SELECT id,name FROM categories').all<Row>()).results.map((c) => [
-          c.id,
-          c.name,
-        ])
-      );
-      splitsAfter = newSplits.map((s) => ({
-        category_id: s.categoryId,
-        category_name: s.categoryId ? catNames.get(s.categoryId) || null : null,
-        amount_minor: s.amount,
-        description: s.description,
-        occurred_at: s.occurredAt,
-      }));
-    } else {
-      splitsAfter = [];
-    }
+    splitsAfter = newSplits.map((s) => ({
+      category_id: s.categoryId,
+      category_name: s.categoryId ? lk.splitCategories.get(s.categoryId) || null : null,
+      amount_minor: s.amount,
+      description: s.description,
+      occurred_at: s.occurredAt ?? occurredAt,
+    }));
   }
 
-  // replace tags if provided
-  if (Array.isArray(b['tags'])) {
-    await env.DB.prepare('DELETE FROM transaction_tags WHERE transaction_id=?').bind(txId).run();
-    const tagIds: string[] = [];
-    for (const t of new Set((b['tags'] as any[]).map((x) => String(x).trim()).filter(Boolean))) {
-      const tid = await upsertTag(env, t, at);
-      if (tid) tagIds.push(tid);
-    }
-    if (tagIds.length)
-      await env.DB.batch(
-        tagIds.map((tid) =>
-          env.DB.prepare(
-            'INSERT OR IGNORE INTO transaction_tags (transaction_id,tag_id) VALUES (?,?)'
-          ).bind(txId, tid)
-        )
-      );
+  if (tagNames) {
+    writes.push(env.DB.prepare('DELETE FROM transaction_tags WHERE transaction_id=?').bind(txId));
+    const tagWrites = tagLinkStmts(env, txId, tagNames, lk.tagIds, at);
+    writes.push(...tagWrites.stmts);
+    masterChanged ||= tagWrites.created;
   }
 
   if (description !== before.description) {
-    await untouchDescriptionSuggestion(env, before.description, at);
-    await touchDescriptionSuggestion(env, description, at);
+    writes.push(...untouchSuggestionStmts(env, before.description, at));
+    writes.push(...touchSuggestionStmts(env, description, at));
   }
 
-  const after: Row = (await env.DB.prepare('SELECT * FROM transactions WHERE id=?')
-    .bind(txId)
-    .first<Row>())!;
-  const auditBefore: Row = splitsBefore ? { ...before, splits_summary: splitsBefore } : before;
+  const after: Row = {
+    ...before,
+    account_id: accountId,
+    payment_method_id: methodId,
+    category_id: categoryId,
+    payee_id: payeeId,
+    transaction_type: type,
+    amount_minor: amountMinor,
+    occurred_at: occurredAt,
+    description,
+    note,
+    status,
+    refunds_transaction_id: refundsTransactionId,
+    is_split_parent: isSplitParent,
+    updated_at: at,
+  };
+  const auditBefore: Row = newSplits ? { ...before, splits_summary: lk.oldSplits } : before;
   const auditAfter: Row = splitsAfter ? { ...after, splits_summary: splitsAfter } : after;
-  await audit(env, 'transaction', txId, 'update', auditBefore, auditAfter);
-  return json(await txDetail(env, txId));
+  writes.push(auditStmt(env, 'transaction', txId, 'update', auditBefore, auditAfter));
+
+  const body = await writeAndReadBack(
+    env,
+    writes,
+    txId,
+    [txId, before.refunds_transaction_id, refundsTransactionId],
+    masterChanged
+  );
+  return json(body);
+}
+
+/** Soft delete (moves to Trash). A transfer leg takes its other leg and transfer row with it. */
+async function softDeleteTransaction(env: Env, txId: string): Promise<Response> {
+  const rows = await env.DB.prepare(
+    `SELECT * FROM transactions WHERE deleted_at IS NULL AND (id=? OR (transfer_id IS NOT NULL
+       AND transfer_id=(SELECT transfer_id FROM transactions WHERE id=? AND deleted_at IS NULL)))`
+  )
+    .bind(txId, txId)
+    .all<Row>();
+  const target = rows.results.find((r) => r.id === txId);
+  if (!target) throw new HttpError(404, 'Transaction not found');
+  const sibling = target.transfer_id ? rows.results.find((r) => r.id !== txId) : undefined;
+  const legs = sibling ? [target, sibling] : [target];
+  const at = now();
+  const writes: D1PreparedStatement[] = [];
+  for (const leg of legs) {
+    writes.push(
+      env.DB.prepare('UPDATE transactions SET deleted_at=?, updated_at=? WHERE id=?').bind(
+        at,
+        at,
+        leg.id
+      ),
+      ...untouchSuggestionStmts(env, leg.description, at),
+      auditStmt(env, 'transaction', leg.id, 'delete', leg, { ...leg, deleted_at: at })
+    );
+  }
+  if (target.transfer_id)
+    writes.push(
+      env.DB.prepare('UPDATE transfers SET deleted_at=?, updated_at=? WHERE id=?').bind(
+        at,
+        at,
+        target.transfer_id
+      )
+    );
+  const res = await batchAll(env, [
+    ...writes,
+    ...changedRowsStmts(
+      env,
+      legs.map((l) => l.refunds_transaction_id)
+    ),
+  ]);
+  const [changed, tags] = res.slice(-2);
+  return json({
+    ok: true,
+    removed: legs.map((l) => l.id),
+    affected: changedRows(changed, tags),
+  });
 }
 
 async function deleteTransaction(
@@ -598,37 +843,12 @@ async function deleteTransaction(
   hard: boolean,
   cascaded = false
 ): Promise<Response> {
-  const before = await env.DB.prepare(
-    hard
-      ? 'SELECT * FROM transactions WHERE id=?'
-      : 'SELECT * FROM transactions WHERE id=? AND deleted_at IS NULL'
-  )
+  if (!hard) return softDeleteTransaction(env, txId);
+  const before = await env.DB.prepare('SELECT * FROM transactions WHERE id=?')
     .bind(txId)
     .first<Row>();
   if (!before) throw new HttpError(404, 'Transaction not found');
   const at = now();
-  if (!hard) {
-    await env.DB.prepare('UPDATE transactions SET deleted_at=?, updated_at=? WHERE id=?')
-      .bind(at, at, txId)
-      .run();
-    await untouchDescriptionSuggestion(env, before.description, at);
-    await audit(env, 'transaction', txId, 'delete', before, { ...before, deleted_at: at });
-    // A transfer is two linked legs + a transfers row — keep all three in sync
-    // so the transfer disappears/reappears as a single unit from the user's
-    // perspective, instead of leaving an orphaned half-transfer behind.
-    if (!cascaded && before.transfer_id) {
-      const sibling = await env.DB.prepare(
-        'SELECT id FROM transactions WHERE transfer_id=? AND id<>? AND deleted_at IS NULL'
-      )
-        .bind(before.transfer_id, txId)
-        .first<Row>();
-      if (sibling) await deleteTransaction(env, sibling.id, false, true);
-      await env.DB.prepare('UPDATE transfers SET deleted_at=?, updated_at=? WHERE id=?')
-        .bind(at, at, before.transfer_id)
-        .run();
-    }
-    return json({ ok: true });
-  }
   // hard delete + dependents; unlink any refunds pointing here
   await env.DB.prepare(
     'UPDATE transactions SET refunds_transaction_id=NULL WHERE refunds_transaction_id=?'
@@ -713,21 +933,25 @@ async function purgeAllTrash(env: Env): Promise<{ purged: number }> {
 // income total. Category/payee breakdowns group transfer legs into a
 // synthetic "Transfer" bucket (TRANSFER_BUCKET_ID) instead of
 // "Uncategorized"/"No payee", since they have no real category or payee.
-async function checkMethodBelongsToAccount(
-  env: Env,
+/** Same checks and messages as the old per-method lookup, from a prefetched method→account map. */
+function checkMethod(
+  methods: Map<string, string>,
   methodId: string | null,
   accountId: string
-): Promise<void> {
+): void {
   if (!methodId) return;
-  const pm = await env.DB.prepare(
-    'SELECT account_id FROM payment_methods WHERE id=? AND deleted_at IS NULL'
-  )
-    .bind(methodId)
-    .first<Row>();
-  if (!pm) throw new HttpError(400, 'Payment method not found');
-  if (pm.account_id !== accountId)
+  const owner = methods.get(methodId);
+  if (owner === undefined) throw new HttpError(400, 'Payment method not found');
+  if (owner !== accountId)
     throw new HttpError(400, 'Payment method does not belong to the selected account');
 }
+
+function methodAccounts(r: D1Result<Row>): Map<string, string> {
+  return new Map(r.results.map((m) => [m.id, m.account_id]));
+}
+
+const METHODS_IN = `SELECT id, account_id FROM payment_methods WHERE deleted_at IS NULL
+  AND id IN (SELECT value FROM json_each(?))`;
 
 async function createTransfer(env: Env, request: Request): Promise<Response> {
   const b = await readJson(request);
@@ -740,23 +964,23 @@ async function createTransfer(env: Env, request: Request): Promise<Response> {
   if (fromAccountId === toAccountId)
     throw new HttpError(400, 'From and to accounts must be different');
   if (!(amountMinor > 0)) throw new HttpError(400, 'amount must be greater than zero');
-  const [fromAcc, toAcc] = await Promise.all([
-    env.DB.prepare('SELECT name FROM accounts WHERE id=? AND deleted_at IS NULL')
-      .bind(fromAccountId)
-      .first<Row>(),
-    env.DB.prepare('SELECT name FROM accounts WHERE id=? AND deleted_at IS NULL')
-      .bind(toAccountId)
-      .first<Row>(),
-  ]);
-  if (!fromAcc) throw new HttpError(400, 'From account not found');
-  if (!toAcc) throw new HttpError(400, 'To account not found');
-
   const fromMethodId = optStr(b, 'fromMethodId');
   const toMethodId = optStr(b, 'toMethodId');
-  await Promise.all([
-    checkMethodBelongsToAccount(env, fromMethodId, fromAccountId),
-    checkMethodBelongsToAccount(env, toMethodId, toAccountId),
+
+  const [accs, methods] = await batchAll(env, [
+    env.DB.prepare('SELECT id, name FROM accounts WHERE deleted_at IS NULL AND id IN (?,?)').bind(
+      fromAccountId,
+      toAccountId
+    ),
+    env.DB.prepare(METHODS_IN).bind(JSON.stringify([fromMethodId, toMethodId].filter(Boolean))),
   ]);
+  const fromAcc = accs.results.find((a) => a.id === fromAccountId);
+  const toAcc = accs.results.find((a) => a.id === toAccountId);
+  if (!fromAcc) throw new HttpError(400, 'From account not found');
+  if (!toAcc) throw new HttpError(400, 'To account not found');
+  const owners = methodAccounts(methods);
+  checkMethod(owners, fromMethodId, fromAccountId);
+  checkMethod(owners, toMethodId, toAccountId);
 
   const status = STATUS_RE.test(str(b, 'status')) ? str(b, 'status') : 'cleared';
   const note = str(b, 'note');
@@ -779,8 +1003,12 @@ async function createTransfer(env: Env, request: Request): Promise<Response> {
     created_at: at,
     updated_at: at,
   };
+  const leg = `INSERT INTO transactions
+      (id,account_id,payment_method_id,category_id,payee_id,transaction_type,amount_minor,occurred_at,
+       description,note,status,transfer_id,is_split_parent,created_at,updated_at)
+     VALUES (?,?,?,NULL,NULL,?,?,?,?,?,?,?,0,?,?)`;
 
-  await runBatches(env, [
+  const res = await batchAll(env, [
     env.DB.prepare(
       `INSERT INTO transfers (id,from_account_id,to_account_id,amount_minor,occurred_at,description,note,created_at,updated_at)
        VALUES (?,?,?,?,?,?,?,?,?)`
@@ -795,15 +1023,11 @@ async function createTransfer(env: Env, request: Request): Promise<Response> {
       at,
       at
     ),
-    env.DB.prepare(
-      `INSERT INTO transactions
-        (id,account_id,payment_method_id,category_id,payee_id,transaction_type,amount_minor,occurred_at,
-         description,note,status,transfer_id,is_split_parent,created_at,updated_at)
-       VALUES (?,?,?,NULL,NULL,'expense',?,?,?,?,?,?,0,?,?)`
-    ).bind(
+    env.DB.prepare(leg).bind(
       outId,
       fromAccountId,
       fromMethodId,
+      'expense',
       amountMinor,
       occurredAt,
       outDescription,
@@ -813,15 +1037,11 @@ async function createTransfer(env: Env, request: Request): Promise<Response> {
       at,
       at
     ),
-    env.DB.prepare(
-      `INSERT INTO transactions
-        (id,account_id,payment_method_id,category_id,payee_id,transaction_type,amount_minor,occurred_at,
-         description,note,status,transfer_id,is_split_parent,created_at,updated_at)
-       VALUES (?,?,?,NULL,NULL,'income',?,?,?,?,?,?,0,?,?)`
-    ).bind(
+    env.DB.prepare(leg).bind(
       inId,
       toAccountId,
       toMethodId,
+      'income',
       amountMinor,
       occurredAt,
       inDescription,
@@ -831,33 +1051,44 @@ async function createTransfer(env: Env, request: Request): Promise<Response> {
       at,
       at
     ),
+    auditStmt(env, 'transfer', transferId, 'create', null, transfer),
+    ...changedRowsStmts(env, [outId]),
+    env.DB.prepare('SELECT * FROM transfers WHERE id=?').bind(transferId),
   ]);
-
-  await audit(env, 'transfer', transferId, 'create', null, transfer);
-  const created = await env.DB.prepare('SELECT * FROM transfers WHERE id=?')
-    .bind(transferId)
-    .first<Row>();
-  return json(created, { status: 201 });
+  const [rows, tags, created] = res.slice(-3);
+  return json({ ...created.results[0], affected: changedRows(rows, tags) }, { status: 201 });
 }
 
 async function updateTransfer(env: Env, request: Request, transferId: string): Promise<Response> {
-  const before = await env.DB.prepare('SELECT * FROM transfers WHERE id=? AND deleted_at IS NULL')
-    .bind(transferId)
-    .first<Row>();
-  if (!before) throw new HttpError(404, 'Transfer not found');
-  const legs = await env.DB.prepare(
-    'SELECT * FROM transactions WHERE transfer_id=? AND deleted_at IS NULL'
-  )
-    .bind(transferId)
-    .all<Row>();
-  if (legs.results.length !== 2)
-    throw new HttpError(500, 'Transfer is missing one of its two linked transactions');
-  const outLeg = legs.results.find((r) => r.transaction_type === 'expense');
-  const inLeg = legs.results.find((r) => r.transaction_type === 'income');
-  if (!outLeg || !inLeg) throw new HttpError(500, 'Transfer legs are inconsistent');
-
   const b = await readJson(request);
   const at = now();
+  const givenMethods = [
+    b['fromMethodId'] !== undefined ? optStr(b, 'fromMethodId') : null,
+    b['toMethodId'] !== undefined ? optStr(b, 'toMethodId') : null,
+  ].filter(Boolean);
+  const [tr, legRows, accs, methods] = await batchAll(env, [
+    env.DB.prepare('SELECT * FROM transfers WHERE id=? AND deleted_at IS NULL').bind(transferId),
+    env.DB.prepare('SELECT * FROM transactions WHERE transfer_id=? AND deleted_at IS NULL').bind(
+      transferId
+    ),
+    env.DB.prepare(
+      `SELECT a.id, a.name FROM accounts a JOIN transfers x ON a.id IN (x.from_account_id, x.to_account_id)
+       WHERE x.id=?`
+    ).bind(transferId),
+    env.DB.prepare(
+      `SELECT id, account_id FROM payment_methods WHERE deleted_at IS NULL
+       AND (id IN (SELECT value FROM json_each(?))
+         OR id IN (SELECT payment_method_id FROM transactions WHERE transfer_id=? AND deleted_at IS NULL))`
+    ).bind(JSON.stringify(givenMethods), transferId),
+  ]);
+  const before = tr.results[0];
+  if (!before) throw new HttpError(404, 'Transfer not found');
+  if (legRows.results.length !== 2)
+    throw new HttpError(500, 'Transfer is missing one of its two linked transactions');
+  const outLeg = legRows.results.find((r) => r.transaction_type === 'expense');
+  const inLeg = legRows.results.find((r) => r.transaction_type === 'income');
+  if (!outLeg || !inLeg) throw new HttpError(500, 'Transfer legs are inconsistent');
+
   const amountMinor = b['amount'] !== undefined ? toMinorStrict(b['amount']) : before.amount_minor;
   if (!(amountMinor > 0)) throw new HttpError(400, 'amount must be greater than zero');
   const occurredAt = b['occurredAt'] !== undefined ? toIso(b['occurredAt']) : before.occurred_at;
@@ -869,44 +1100,55 @@ async function updateTransfer(env: Env, request: Request, transferId: string): P
     b['fromMethodId'] !== undefined ? optStr(b, 'fromMethodId') : outLeg.payment_method_id;
   const toMethodId =
     b['toMethodId'] !== undefined ? optStr(b, 'toMethodId') : inLeg.payment_method_id;
-  await Promise.all([
-    checkMethodBelongsToAccount(env, fromMethodId, before.from_account_id),
-    checkMethodBelongsToAccount(env, toMethodId, before.to_account_id),
-  ]);
+  const owners = methodAccounts(methods);
+  checkMethod(owners, fromMethodId, before.from_account_id);
+  checkMethod(owners, toMethodId, before.to_account_id);
 
-  const [fromAcc, toAcc] = await Promise.all([
-    env.DB.prepare('SELECT name FROM accounts WHERE id=?')
-      .bind(before.from_account_id)
-      .first<Row>(),
-    env.DB.prepare('SELECT name FROM accounts WHERE id=?').bind(before.to_account_id).first<Row>(),
-  ]);
-  const outDescription = customDescription || `Transfer to ${toAcc?.name || ''}`;
-  const inDescription = customDescription || `Transfer from ${fromAcc?.name || ''}`;
+  const names = new Map(accs.results.map((a) => [a.id, a.name]));
+  const outDescription =
+    customDescription || `Transfer to ${names.get(before.to_account_id) || ''}`;
+  const inDescription =
+    customDescription || `Transfer from ${names.get(before.from_account_id) || ''}`;
+  const legUpdate =
+    'UPDATE transactions SET amount_minor=?, occurred_at=?, description=?, note=?, status=?, payment_method_id=?, updated_at=? WHERE id=?';
 
-  await runBatches(env, [
+  const res = await batchAll(env, [
     env.DB.prepare(
       'UPDATE transfers SET amount_minor=?, occurred_at=?, description=?, note=?, updated_at=? WHERE id=?'
     ).bind(amountMinor, occurredAt, customDescription, note, at, transferId),
-    env.DB.prepare(
-      'UPDATE transactions SET amount_minor=?, occurred_at=?, description=?, note=?, status=?, payment_method_id=?, updated_at=? WHERE id=?'
-    ).bind(amountMinor, occurredAt, outDescription, note, status, fromMethodId, at, outLeg.id),
-    env.DB.prepare(
-      'UPDATE transactions SET amount_minor=?, occurred_at=?, description=?, note=?, status=?, payment_method_id=?, updated_at=? WHERE id=?'
-    ).bind(amountMinor, occurredAt, inDescription, note, status, toMethodId, at, inLeg.id),
+    env.DB.prepare(legUpdate).bind(
+      amountMinor,
+      occurredAt,
+      outDescription,
+      note,
+      status,
+      fromMethodId,
+      at,
+      outLeg.id
+    ),
+    env.DB.prepare(legUpdate).bind(
+      amountMinor,
+      occurredAt,
+      inDescription,
+      note,
+      status,
+      toMethodId,
+      at,
+      inLeg.id
+    ),
+    auditStmt(env, 'transfer', transferId, 'update', before, {
+      ...before,
+      amount_minor: amountMinor,
+      occurred_at: occurredAt,
+      description: customDescription,
+      note,
+      updated_at: at,
+    }),
+    ...changedRowsStmts(env, [outLeg.id]),
+    env.DB.prepare('SELECT * FROM transfers WHERE id=?').bind(transferId),
   ]);
-
-  await audit(env, 'transfer', transferId, 'update', before, {
-    ...before,
-    amount_minor: amountMinor,
-    occurred_at: occurredAt,
-    description: customDescription,
-    note,
-    updated_at: at,
-  });
-  const updated = await env.DB.prepare('SELECT * FROM transfers WHERE id=?')
-    .bind(transferId)
-    .first<Row>();
-  return json(updated);
+  const [rows, tags, updated] = res.slice(-3);
+  return json({ ...updated.results[0], affected: changedRows(rows, tags) });
 }
 
 // ---------------- master data ----------------

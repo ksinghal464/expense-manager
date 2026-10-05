@@ -8,6 +8,7 @@ import React, {
   useState,
 } from 'react';
 import { api, ApiError } from './api';
+import { mergeChanges, type TxChanges } from './txMerge';
 import {
   parseRoute,
   routeUrl,
@@ -67,7 +68,13 @@ export interface Store {
   setManageTab: (tab: ManageTab) => void;
   open: (m: Modal) => void;
   close: () => void;
+  /** Full reload of master data and every transaction. */
   refresh: () => Promise<void>;
+  /**
+   * Apply a save's result to the in-memory list instead of reloading everything.
+   * Pass the saved description so a new one shows up in autocomplete.
+   */
+  applyChanges: (changes: TxChanges, description?: string) => void;
   toast: (msg: string) => void;
   notify: string;
 }
@@ -279,16 +286,20 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   const [suggestions, setSuggestions] = useState<string[]>([]);
   const [transactions, setTransactions] = useState<TxView[]>([]);
 
+  const applyBootstrap = useCallback((b: Bootstrap | null) => {
+    const src: Bootstrap = b || EMPTY;
+    setAccounts(src.accounts || []);
+    setCategories(src.categories || []);
+    setMethods(src.paymentMethods || []);
+    setPayees(src.payees || []);
+    setTags(src.tags || []);
+    setSuggestions(src.suggestions || []);
+  }, []);
+
   const refresh = useCallback(async () => {
     try {
       const [b, t] = await Promise.all([api.bootstrap(), fetchAllTransactions()]);
-      const src: Bootstrap = b || EMPTY;
-      setAccounts(src.accounts || []);
-      setCategories(src.categories || []);
-      setMethods(src.paymentMethods || []);
-      setPayees(src.payees || []);
-      setTags(src.tags || []);
-      setSuggestions(src.suggestions || []);
+      applyBootstrap(b);
       setTransactions(t || []);
       setError('');
       setNeedsLogin(false);
@@ -313,7 +324,24 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [applyBootstrap]);
+
+  const suggestionsRef = useRef(suggestions);
+  suggestionsRef.current = suggestions;
+  const applyChanges = useCallback(
+    (c: TxChanges, description?: string) => {
+      setTransactions((prev) => mergeChanges(prev, c.affected || [], c.removed || []));
+      const d = description?.trim().toLowerCase();
+      const newSuggestion = !!d && !suggestionsRef.current.some((x) => x.toLowerCase() === d);
+      // New payee/tag/description: reload just the master data lists, in the background.
+      if (c.masterChanged || newSuggestion)
+        api
+          .bootstrap()
+          .then(applyBootstrap)
+          .catch(() => {});
+    },
+    [applyBootstrap]
+  );
 
   useEffect(() => {
     refresh();
@@ -346,6 +374,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       open,
       close,
       refresh,
+      applyChanges,
       toast,
       notify,
     }),
@@ -369,6 +398,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       open,
       close,
       refresh,
+      applyChanges,
       toast,
       notify,
     ]
